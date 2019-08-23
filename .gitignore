@@ -1,0 +1,7 @@
+# ignore files
+*.log
+*.DS_Store
+
+# ignore folders
+data/
+/util/+STGP_gpu/

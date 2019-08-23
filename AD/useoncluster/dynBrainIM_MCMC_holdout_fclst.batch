@@ -1,0 +1,24 @@
+#!/bin/tcsh
+ 
+#SBATCH --job-name=STGP-AD
+#SBATCH -n 6
+#SBATCH --time=168:00:00
+#SBATCH --mem-per-cpu=32768
+##SBATCH --mail-type=FAIL
+##SBATCH --mail-type=END
+##SBATCH --mail-user=shiwei@illinois.edu
+ 
+cd ~/STGP/code/AD
+module load matlab/0matlab-r2017a
+export LD_LIBRARY_PATH=/sw/matlab-r2017a/bin/glnxa64:$LD_LIBRARY_PATH
+
+# install mtimesx in matlab on linux cluster
+# blas_lib='/sw/matlab-r2017a/bin/glnxa64/libmwblas.so'
+# mex('-DDEFINEUNIX','-largeArrayDims','mtimesx.c',blas_lib)
+
+# matlab -nodesktop -nodisplay < dynBrainIM_MCMC_holdout_fclst.m > dynBrainIM_MCMC_holdout_fclst.out &
+mcc -m dynBrainIM_MCMC_holdout_fclst.m -I ~/STGP/code/AD -I ~/STGP/code/util -I ~/STGP/code/sampler/ -I ~/STGP/code/util/mtimesx/ -I ~/STGP/code/util/STGP_mtimesx/ -I ~/STGP/code/util/Image_Graphs/;
+chmod +x ./run_dynBrainIM_MCMC_holdout_fclst.sh
+./run_dynBrainIM_MCMC_holdout_fclst.sh /sw/matlab-r2017a $grp_opt $mdl_opt [] [] [] $intM
+
+# ./dynBrainIM_MCMC_holdout_fclst
