@@ -99,22 +99,25 @@ classdef isub
             end
             if alpha==-1
                 lambda2=self.stgp.Lambda'.^2; lambda2=lambda2(:)./self.K;
+                lambda2v=lambda2.*v;
             end
             if L*J<=1e3
                 if alpha==-1
-                    S=self.tomat;
-                    invSv=(S-spdiags(lambda2,0,L*J,L*J))*(S\(lambda2.*v));
+%                     S=self.tomat;
+%                     invSv=(S-spdiags(lambda2,0,L*J,L*J))*(S\(lambda2.*v));
+                    invSv=lambda2v-lambda2.*(self.tomat\lambda2v);
                 else
                     invSv=self.tomat(alpha)\v; % (LJ,K_)
                 end
             else
                 if alpha==-1
-                    if size(v,2)==1
-                        invSv=reshape(self.stgp.C_t.mult(reshape(self.solve(lambda2.*v),L,J)')',L*J,1);
-                    else
-                        invSv=permute(reshape(self.solve(lambda2.*v),L,J,[]),[2,1,3]); % (J,L,K_)
-                        invSv=reshape(permute(reshape(self.stgp.C_t.mult(invSv(:,:)),J,L,[]),[2,1,3]),L*J,[]); % (L,J,L_)
-                    end
+%                     if size(v,2)==1
+%                         invSv=reshape(self.stgp.C_t.mult(reshape(self.solve(lambda2.*v),L,J)')',L*J,1);
+%                     else
+%                         invSv=permute(reshape(self.solve(lambda2.*v),L,J,[]),[2,1,3]); % (J,L,K_)
+%                         invSv=reshape(permute(reshape(self.stgp.C_t.mult(invSv(:,:)),J,L,[]),[2,1,3]),L*J,[]); % (L,J,L_)
+%                     end
+                    invSv=lambda2v-lambda2.*self.solve(lambda2v);
                 else
                     Sf=@(v)self.mult(v,alpha);
                     invSv=zeros(size(v)); % (LJ,K_)

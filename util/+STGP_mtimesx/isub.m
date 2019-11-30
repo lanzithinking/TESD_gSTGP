@@ -94,17 +94,20 @@ classdef isub
             end
             if alpha==-1
                 lambda2=self.stgp.Lambda'.^2; lambda2=lambda2(:)./self.K;
+                lambda2v=lambda2.*v;
             end
             if L*J<=1e3
                 if alpha==-1
-                    S=self.tomat;
-                    invSv=(S-spdiags(lambda2,0,L*J,L*J))*(S\(lambda2.*v));
+%                     S=self.tomat;
+%                     invSv=(S-spdiags(lambda2,0,L*J,L*J))*(S\(lambda2.*v));
+                    invSv=lambda2v-lambda2.*(self.tomat\lambda2v);
                 else
                     invSv=self.tomat(alpha)\v; % (LJ,K_)
                 end
             else
                 if alpha==-1
-                    invSv=reshape(self.stgp.C_t.mult(reshape(self.solve(lambda2.*v),L,J,[]),'t'),L*J,[]);
+%                     invSv=reshape(self.stgp.C_t.mult(reshape(self.solve(lambda2.*v),L,J,[]),'t'),L*J,[]);
+                    invSv=lambda2v-lambda2.*self.solve(lambda2v);
                 else
                     Sf=@(v)self.mult(v,alpha);
                     invSv=zeros(size(v)); % (LJ,K_)
