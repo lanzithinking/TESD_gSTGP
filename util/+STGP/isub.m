@@ -147,7 +147,7 @@ classdef isub
             end
             if ~(isempty(self.eigf) || isempty(self.eigv)) && L<=self.L && ~upd
                 [eigf,eigv]=deal(self.eigf,self.eigv);
-                eigf=eigf(:,1:L); eigv=eigv(1:L);
+                eigf=eigf(:,1:L); eigv=eigv(1:L).^alpha;
             else
                 L=min([L,self.stgp.L*self.stgp.J]);
                 if self.stgp.L*self.stgp.J<=1e3
