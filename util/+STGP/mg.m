@@ -205,7 +205,7 @@ classdef mg
                 nz_var_=self.nz_var;
                 self.nz_var=nz_var;
                 if self.store_eig
-                    self.eigv=eigv_+(-nz_var_+self.nz_var)./self.K;
+                    self.eigv=self.eigv+(-nz_var_+self.nz_var)./self.K;
                 end
             end
         end
