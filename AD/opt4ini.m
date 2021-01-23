@@ -53,7 +53,7 @@ for iter=1:Nmax
     if opt_id(1)
         % update sigma2
         if intM
-            if mgC.stgp.opt==1
+            if mgC.stgp.opt~=2
                 % sigma2_eps
                 if ~jtopt
                     logf{1}=@(q)logpost_sigma2([q,sigma2(2)],mgC,y,a(1),b(1),1);
@@ -71,7 +71,7 @@ for iter=1:Nmax
             end
         else
             switch mgC.stgp.opt
-                case 1
+                case {0,1}
                     y_ctr=y-M;
                     dltb(1)=0.5.*sum(y_ctr(:).^2);
                     dltb(2)=0.5.*(M(:)'*mgC.stgp.solve(M(:))).*sigma2(2);
@@ -88,7 +88,7 @@ for iter=1:Nmax
         beta=b+dltb;
         sigma2_all=beta./(alpha+1); % optimize
         nl_sigma2_all=-(log(gampdf(1./sigma2_all,alpha,1./beta))-2*log(sigma2_all));
-        idx2upd=(intM*3+(1-intM)*mgC.stgp.opt):3;
+        idx2upd=(intM*3+(1-intM)*(1+(mgC.stgp.opt==2))):3;
         sigma2(idx2upd)=sigma2_all(idx2upd); nl_sigma2(idx2upd)=nl_sigma2_all(idx2upd);
         objf(1)=sum(nl_sigma2);
         % update kernels
@@ -124,7 +124,8 @@ for iter=1:Nmax
     if opt_id(3)
         % update Lambda
         logLik_Lambda=@(q)loglik_Lambda(q,mgC,y,M);
-        [Lambda,objf(3)]=fminunc(@(q)-logLik_Lambda(q)-ker3.matn0pdf(q),Lambda,opts_unc);
+%         [Lambda,objf(3)]=fminunc(@(q)-logLik_Lambda(q)-ker3.matn0pdf(q),Lambda,opts_unc);
+        [Lambda,objf(3)]=fminunc(@(q)gather(-logLik_Lambda(q)-ker3.matn0pdf(q)),gather(Lambda),opts_unc);
         % update marginal kernel
         mgC=mgC.update(mgC.stgp.update([],[],Lambda));
     end

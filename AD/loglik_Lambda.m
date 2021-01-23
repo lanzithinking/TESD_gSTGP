@@ -22,7 +22,7 @@ if intM
     end
 else
     switch mgC.stgp.ker_opt
-        case 'kron_prod'
+        case {'sep','kron_prod'}
             loglik=mgC.stgp.matn0pdf(M(:));
         case 'kron_sum'
             loglik=mgC.stgp.matn0pdf(y-M);

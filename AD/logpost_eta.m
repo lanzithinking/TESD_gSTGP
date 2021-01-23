@@ -30,7 +30,7 @@ if any(ismember([1,2],out_opt))
         end
     else
         switch mgC.stgp.ker_opt
-            case 'kron_prod'
+            case {'sep','kron_prod'}
                 loglik(1:2)=mgC.stgp.matn0pdf(M(:));
             case 'kron_sum'
                 if any(out_opt==1)

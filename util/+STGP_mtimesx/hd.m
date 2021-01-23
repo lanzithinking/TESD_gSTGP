@@ -17,7 +17,7 @@ classdef hd
         kappa=2; % decaying rate for dynamic eigenvalues
         I,J,L; % spatial/temporal dimensions, Karhunen-Loeve truncation number
         N; % joint dimension (number of total inputs per trial)
-        jtkers={'kron_prod','kron_sum'}; % joint kernel models
+        jtkers={'sep','kron_prod','kron_sum'}; % joint kernel models
         opt=2; % joint kernel model choice
         ker_opt; % joint kernel
         jit=1e-6; % jitter added to joint kernel
@@ -53,13 +53,13 @@ classdef hd
                 if isnumeric(opt)
                     self.opt=opt;
                 elseif ischar(opt)
-                    self.opt=1:length(self.jtkers);
+                    self.opt=0:length(self.jtkers)-1;
                     self.opt=self.opt(contains(self.jtkers,opt));
                 else
                     error('Wrong option!');
                 end
             end
-            self.ker_opt=self.jtkers{self.opt};
+            self.ker_opt=self.jtkers{self.opt+1};
             if exist('jit','var') && ~isempty(jit)
                 self.jit=jit;
             end
@@ -78,7 +78,7 @@ classdef hd
                 alpha=1; % -1: inverse; 0.5 square-root
             end
             if ~exist('beta','var') || isempty(beta)
-                beta=self.opt-1; % coefficient before likelihood component
+                beta=self.opt==2; % coefficient before likelihood component
             end
             if self.N<=1e3
                 if size(v,1)~=self.N
@@ -92,32 +92,40 @@ classdef hd
                     C_xtv=C_xt*v; C_zv=C_z*v;
                 end
             else
-                Lambda_=(self.Lambda.^self.opt+self.jit.*(alpha<0)).^alpha; Phi_x=self.C_x.eigs(self.L);
                 if size(v,1)~=self.I
                     v=reshape(v,self.I,self.J,[]); % (I,J,K_)
                 end
-                switch self.ker_opt
-                    case 'kron_prod'
-    %                     LambdaPhiv=permute(reshape(repmat(Lambda_',1,size(v,3)).*(Phi_x'*v(:,:)),self.L,self.J,[]),[2,1,3]); % (J,L,K_)
-                        LambdaPhiv=permute(Lambda_'.*mtimesx(Phi_x,'t',v),[2,1,3]); % (J,L,K_)
-                        PhiLambda=reshape(Phi_x,self.I,1,self.L).*reshape(Lambda_,1,self.J,self.L); % (I,J,L)
-                        C_xtv=reshape(PhiLambda,self.N,[])*shiftdim(sum(LambdaPhiv)); % (IJ,K_)
-                        if nargout>1
-                            C_zv=squeeze(sum(PhiLambda.*reshape(self.C_t.mult(LambdaPhiv(:,:)),1,self.J,self.L,[]),3)); % (I,J,K_)
-                            C_zv=reshape(C_zv+((alpha>=0).*self.jit+beta).*v,self.N,[]); % (IJ,K_)
-                        end
-                    case 'kron_sum'
-    %                     Lambda2Phiv=repmat(Lambda_',1,size(v,3)).*(Phi_x'*v(:,:)); % (L,JK_)
-                        Lambda2Phiv=Lambda_'.*mtimesx(Phi_x,'t',v); % (L,J,K_)
-                        C_xtv=reshape(Phi_x*Lambda2Phiv(:,:)+(alpha>=0).*self.jit.*v(:,:),self.N,[]); % (IJ,K_)
-                        if nargout>1
-                            if size(v,2)>self.J
-                                v=reshape(v,self.I,self.J,[]);
+                if contains(self.ker_opt,'sep')
+                    C_xtv=self.C_t.mult(self.C_x.mult(v),'t'); % (I,J,K_)
+                    if nargout>1
+                        C_zv=reshape(C_xtv+beta.*v,self.N,[]); % (IJ,K_)
+                    end
+                    C_xtv=reshape(C_xtv,self.N,[]); % (IJ,K_)
+                else
+                    Lambda_=(self.Lambda.^self.opt+self.jit.*(alpha<0)).^alpha; Phi_x=self.C_x.eigs(self.L);
+                    switch self.ker_opt
+                        case 'kron_prod'
+        %                     LambdaPhiv=permute(reshape(repmat(Lambda_',1,size(v,3)).*(Phi_x'*v(:,:)),self.L,self.J,[]),[2,1,3]); % (J,L,K_)
+                            LambdaPhiv=permute(Lambda_'.*mtimesx(Phi_x,'t',v),[2,1,3]); % (J,L,K_)
+                            PhiLambda=reshape(Phi_x,self.I,1,self.L).*reshape(Lambda_,1,self.J,self.L); % (I,J,L)
+                            C_xtv=reshape(PhiLambda,self.N,[])*shiftdim(sum(LambdaPhiv)); % (IJ,K_)
+                            if nargout>1
+                                C_zv=squeeze(sum(PhiLambda.*reshape(self.C_t.mult(LambdaPhiv(:,:)),1,self.J,self.L,[]),3)); % (I,J,K_)
+                                C_zv=reshape(C_zv+((alpha>=0).*self.jit+beta).*v,self.N,[]); % (IJ,K_)
                             end
-                            C_zv=self.C_t.mult(v,'t'); % (I,J,K_)
-                            C_zv=reshape(C_zv,self.N,[]);
-                            C_zv=C_zv+beta.*C_xtv; % (IJ,K_)
-                        end
+                        case 'kron_sum'
+        %                     Lambda2Phiv=repmat(Lambda_',1,size(v,3)).*(Phi_x'*v(:,:)); % (L,JK_)
+                            Lambda2Phiv=Lambda_'.*mtimesx(Phi_x,'t',v); % (L,J,K_)
+                            C_xtv=reshape(Phi_x*Lambda2Phiv(:,:)+(alpha>=0).*self.jit.*v(:,:),self.N,[]); % (IJ,K_)
+                            if nargout>1
+                                if size(v,2)>self.J
+                                    v=reshape(v,self.I,self.J,[]);
+                                end
+                                C_zv=self.C_t.mult(v,'t'); % (I,J,K_)
+                                C_zv=reshape(C_zv,self.N,[]);
+                                C_zv=C_zv+beta.*C_xtv; % (IJ,K_)
+                            end
+                    end
                 end
             end
         end
@@ -142,37 +150,44 @@ classdef hd
                 alpha=1; % -1: inverse; 0.5 square-root
             end
             if ~exist('beta','var') || isempty(beta)
-                beta=self.opt-1; % coefficient before likelihood component
+                beta=self.opt==2; % coefficient before likelihood component
             end
             if ~exist('trtdeg','var') || isempty(trtdeg)
                 trtdeg=false;
             end
-            Lambda_=(self.Lambda.^self.opt+self.jit.*(alpha<0)).^alpha; Phi_x=self.C_x.eigs(self.L);
-            switch self.ker_opt
-                case 'kron_prod'
-                    PhiLambda=reshape(Phi_x,self.I,1,self.L).*reshape(Lambda_,1,self.J,self.L);
-                    PhiLambda=reshape(PhiLambda,self.N,self.L);
-                    C_xt=PhiLambda*PhiLambda';
-                    if trtdeg && self.L<self.I
-                        C_x0=Phi_x*(self.C_x.eigv(1:self.L).*Phi_x');
-                        C_xt=C_xt+repmat(self.C_x.tomat-C_x0,self.J,self.J);
-                    end
-                    if nargout>1
-                        C_z=C_xt.*kron(self.C_t.tomat,ones(self.I))+((alpha>=0).*self.jit+beta).*speye(self.N);
-                    end
-                case 'kron_sum'
-                    PhiLambda2=reshape(Phi_x,self.I,1,self.L).*reshape(Lambda_,1,self.J,self.L);
-                    PhiLambda2=reshape(PhiLambda2,self.N,self.L);
-                    PhiLambda2=PhiLambda2*Phi_x'+repmat((alpha>=0).*self.jit.*speye(self.I),self.J,1);
-                    if trtdeg && self.L<self.I
-                        C_x0=Phi_x*(self.C_x.eigv(1:self.L).*Phi_x');
-                        PhiLambda2=PhiLambda2+repmat(self.C_x.tomat-C_x0,self.J,1);
-                    end
-                    bkdgix=self.get_bkdgix('IJI');
-                    C_xt=sparse(bkdgix(:,1),bkdgix(:,2),PhiLambda2(:));
-                    if nargout>1
-                        C_z=beta.*C_xt+kron(self.C_t.tomat,speye(self.I));
-                    end
+            if contains(self.ker_opt,'sep')
+                C_xt=kron(self.C_t.tomat(),self.C_x.tomat());
+                if nargout>1
+                    C_z=C_xt+beta.*speye(self.N);
+                end
+            else
+                Lambda_=(self.Lambda.^self.opt+self.jit.*(alpha<0)).^alpha; Phi_x=self.C_x.eigs(self.L);
+                switch self.ker_opt
+                    case 'kron_prod'
+                        PhiLambda=reshape(Phi_x,self.I,1,self.L).*reshape(Lambda_,1,self.J,self.L);
+                        PhiLambda=reshape(PhiLambda,self.N,self.L);
+                        C_xt=PhiLambda*PhiLambda';
+                        if trtdeg && self.L<self.I
+                            C_x0=Phi_x*(self.C_x.eigv(1:self.L).*Phi_x');
+                            C_xt=C_xt+repmat(self.C_x.tomat-C_x0,self.J,self.J);
+                        end
+                        if nargout>1
+                            C_z=C_xt.*kron(self.C_t.tomat,ones(self.I))+((alpha>=0).*self.jit+beta).*speye(self.N);
+                        end
+                    case 'kron_sum'
+                        PhiLambda2=reshape(Phi_x,self.I,1,self.L).*reshape(Lambda_,1,self.J,self.L);
+                        PhiLambda2=reshape(PhiLambda2,self.N,self.L);
+                        PhiLambda2=PhiLambda2*Phi_x'+repmat((alpha>=0).*self.jit.*speye(self.I),self.J,1);
+                        if trtdeg && self.L<self.I
+                            C_x0=Phi_x*(self.C_x.eigv(1:self.L).*Phi_x');
+                            PhiLambda2=PhiLambda2+repmat(self.C_x.tomat-C_x0,self.J,1);
+                        end
+                        bkdgix=self.get_bkdgix('IJI');
+                        C_xt=sparse(bkdgix(:,1),bkdgix(:,2),PhiLambda2(:));
+                        if nargout>1
+                            C_z=beta.*C_xt+kron(self.C_t.tomat,speye(self.I));
+                        end
+                end
             end
         end
         
@@ -183,6 +198,12 @@ classdef hd
         function invCv=solve(self,v,varargin)
             % joint kernel solve a function (vector)
             switch self.ker_opt
+                case 'sep'
+                    if size(v,1)~=self.I
+                        v=reshape(v,self.I,self.J,[]); % (I,J,K_)
+                    end
+                    invCv=self.C_t.solve(self.C_x.solve(v),'t'); % invC_xtv
+                    invCv=reshape(invCv,self.N,[]);
                 case 'kron_prod'
                     if size(v,1)~=self.N
                         v=reshape(v,self.N,[]);
@@ -221,6 +242,14 @@ classdef hd
             else
                 L=min([L,self.N]);
                 switch self.ker_opt
+                    case 'sep'
+                        [eigf_t,eigv_t]=self.C_t.eigs(); [eigf_x,eigv_x]=self.C_x.eigs();
+                        eigv=kron(eigv_t,eigv_x); eigf=kron(eigf_t,eigf_x);
+                        if L<=self.C_t.L*self.C_x.L
+                            eigv=eigv(1:L); eigf=eigf(:,1:L);
+                        else
+                            warning('Requested too many eigenvalues!');
+                        end
                     case 'kron_prod'
                         if self.N<=1e3
                             [~,C_z]=self.tomat;
@@ -252,7 +281,7 @@ classdef hd
             switch alpha
                 case 1
                     switch self.ker_opt
-                        case 'kron_prod'
+                        case {'sep','kron_prod'}
                             y=self.C_zmult(x); % C_z x
                         case 'kron_sum'
                             y=self.mult(x); % C_xt x
@@ -261,7 +290,7 @@ classdef hd
                     y=self.solve(x);
                 otherwise
                     switch self.ker_opt
-                        case 'kron_prod'
+                        case {'sep','kron_prod'}
                             if size(x,1)~=self.N
                                 x=reshape(x,self.N,[]); % (IJ,K_)
                             end
@@ -276,7 +305,7 @@ classdef hd
         function ldet=logdet(self)
             % log-determinant of the joint kernel
             switch self.ker_opt
-                case 'kron_prod'
+                case {'sep','kron_prod'}
                     [~,eigv]=self.eigs;
                     ldet=sum(log(abs(eigv))); % log |C_z|
                 case 'kron_sum'
@@ -361,7 +390,7 @@ classdef hd
             % sample prior mean function (matrix normal)
             mvn0Irv=randn(self.I,self.J); % (I,J)
             switch self.ker_opt
-                case 'kron_prod'
+                case {'sep','kron_prod'}
                     M0=self.act(mvn0Irv(:),.5); % (IJ,1)
                     M0=reshape(M0,self.I,self.J); % (I,J)
                 case 'kron_sum'

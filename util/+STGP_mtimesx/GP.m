@@ -188,8 +188,8 @@ classdef GP
                 case -1
                     y=self.solve(x,varargin{:});
                 otherwise
+                    trans=(~isempty(varargin)&&contains(varargin{1},{'t','T'}));
                     if ndims(x)<=2
-                        trans=(~isempty(varargin)&&contains(varargin{1},{'t','T'}));
                         if ~trans
                             multf=@mtimes;
                         else

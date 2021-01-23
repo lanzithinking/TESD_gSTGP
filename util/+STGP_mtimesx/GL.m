@@ -219,8 +219,8 @@ classdef GL
 %                     y=cholC\x;
 %                 end
             else
+                trans=(~isempty(varargin)&&contains(varargin{1},{'t','T'}));
                 if ndims(x)<=2
-                    trans=(~isempty(varargin)&&contains(varargin{1},{'t','T'}));
                     if ~trans
                         multf=@mtimes;
                     else

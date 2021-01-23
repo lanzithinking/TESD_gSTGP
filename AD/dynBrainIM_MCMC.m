@@ -38,7 +38,7 @@ intM=true;%~sampleM;
 use_para=false;
 
 % model options
-models={'kron_prod','kron_sum'};
+models={'sep','kron_prod','kron_sum'};
 for mdl_opt=2;
 % compatible setting for M
 if ~intM
@@ -94,7 +94,7 @@ ker{3}=ker{2}; % for hyper-GP
 % (a,b) in inv-gamma priors for sigma2_*, * = eps, t, u
 % (m,V) in (log) normal priors for eta_*, (eta=log-rho), * = x, t, u
 switch mdl_opt
-    case 1
+    case {0,1}
         a=ones(1,3); b=[5e-1,1e1,1e1];
         m=zeros(1,3); V=[1,1,1];
     case 2
@@ -122,7 +122,7 @@ end
 % initializatioin
 % sigma2=1./gamrnd(a,1./b); 
 sigma2=invgamrnd(a,b);
-sigma2(1)=sigma2(1).^(mdl_opt==1);
+sigma2(1)=sigma2(1).^(mdl_opt~=2);
 eta=normrnd(m,sqrt(V));
 for k=1:length(ker)
     ker{k}=ker{k}.update(sigma2(k)^(k~=1),exp(eta(k)));
@@ -165,14 +165,14 @@ if opthypr
 end
 
 % MCMC
-fprintf('Running MCMC for model %s with%s M integrated on %s data...\n',repmat('I',1,mdl_opt), repmat('out',1-intM), grp);
+fprintf('Running MCMC for model %s with%s M integrated on %s data...\n',join([repmat('0',1,mdl_opt==0),repmat('I',1,mdl_opt)]), repmat('out',1-intM), grp);
 prog=0.05:0.05:1;
 tic;
 for iter=1:Niter
     
     % update sigma2
     if intM
-        if mdl_opt==1
+        if mdl_opt~=2
             % sigma2_eps
             logf{1}=@(q)logpost_sigma2([q,sigma2(2)],mgC,y,a(1),b(1),1);
             if ~opthypr
@@ -196,7 +196,7 @@ for iter=1:Niter
         end
     else
         switch mdl_opt
-            case 1
+            case {0,1}
                 y_ctr=y-M;
                 dltb(1)=0.5.*sum(y_ctr(:).^2);
                 dltb(2)=0.5.*(M(:)'*mgC.stgp.solve(M(:))).*sigma2(2);
@@ -211,7 +211,7 @@ for iter=1:Niter
     quad=U.*ker{3}.solve(U);
     dltb(3)=0.5.*sum(quad(:)).*sigma2(3);
     beta=b+dltb;
-    idx2upd=(intM*3+(1-intM)*mdl_opt):3;
+    idx2upd=(intM*3+(1-intM)*(1+(mdl_opt==2))):3;
     if ~opthypr
 %         sigma2_=1./gamrnd(alpha,1./beta); % sample
         sigma2_=invgamrnd(alpha,beta);
@@ -329,7 +329,7 @@ if opthypr
         alg_name=['jt',alg_name];
     end
 end
-keywd=[models{mdl_opt},'_I',num2str(I),'_J',num2str(J),'_K',num2str(K),'_L',num2str(L),'_d',num2str(d),'_',time_lbl];
+keywd=[models{mdl_opt+1},'_I',num2str(I),'_J',num2str(J),'_K',num2str(K),'_L',num2str(L),'_d',num2str(d),'_',time_lbl];
 f_name=['dynBrainIM_',typ,'_',grp,'_',alg_name];
 if intM
     f_name=[f_name,'_intM_',keywd];

@@ -48,7 +48,7 @@ classdef mg
         function mgCv=mult(self,v)
             % marginal kernel apply (mulitply) a function (vector)
             switch self.stgp.ker_opt % posterior covariance action
-                case 'kron_prod'
+                case {'sep','kron_prod'}
                     [~,mgCv]=self.stgp.mult(v,[],self.nz_var/self.K);
                 case 'kron_sum'
                     [~,mgCv]=self.stgp.mult(v,[],1/self.K);
@@ -58,7 +58,7 @@ classdef mg
         function mgC=tomat(self)
             % return the marginal kernel in matrix format
             switch self.stgp.ker_opt % posterior covariance action
-                case 'kron_prod'
+                case {'sep','kron_prod'}
                     [~,mgC]=self.stgp.tomat([],self.nz_var/self.K);
                 case 'kron_sum'
                     [~,mgC]=self.stgp.tomat([],1/self.K);
@@ -194,7 +194,7 @@ classdef mg
                 % update isub
                 self.isub=self.isub.update(self.stgp);
             end
-            if exist('nz_var','var') && ~isempty(nz_var) && self.stgp.opt==1
+            if exist('nz_var','var') && ~isempty(nz_var) && self.stgp.opt~=2
                 nz_var_=self.nz_var;
                 self.nz_var=nz_var;
                 if self.store_eig
@@ -208,7 +208,7 @@ classdef mg
             Ybar=mean(y,3); % (I,J)
             mvn0Irv=randn(self.stgp.I,self.stgp.J); % (I,J)
             switch self.stgp.ker_opt
-                case 'kron_prod'
+                case {'sep','kron_prod'}
                     [~,MU]=self.stgp.mult(self.solve(Ybar(:)));% (IJ,1)
                     M0=self.stgp.act(self.act(mvn0Irv(:).*sqrt(self.nz_var/self.K),-0.5),.5); % (IJ,1)
                 case 'kron_sum'
