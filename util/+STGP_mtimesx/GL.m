@@ -161,6 +161,9 @@ classdef GL
             end
             Ps=self.prec(self.s);
             invCv=multf(Ps,v)./self.sigma2;
+            if ndims(v)>2 && trans
+                invCv=permute(invCv,[2,1,3]);
+            end
         end
         
         function [eigf,eigv]=eigs(self,L,upd,alpha)

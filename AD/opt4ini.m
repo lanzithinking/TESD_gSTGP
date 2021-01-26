@@ -124,8 +124,12 @@ for iter=1:Nmax
     if opt_id(3)
         % update Lambda
         logLik_Lambda=@(q)loglik_Lambda(q,mgC,y,M);
-%         [Lambda,objf(3)]=fminunc(@(q)-logLik_Lambda(q)-ker3.matn0pdf(q),Lambda,opts_unc);
-        [Lambda,objf(3)]=fminunc(@(q)gather(-logLik_Lambda(q)-ker3.matn0pdf(q)),gather(Lambda),opts_unc);
+        if isgpuarray(Lambda)
+            [Lambda,objf(3)]=fminunc(@(q)gather(-logLik_Lambda(q)-ker3.matn0pdf(q)),gather(Lambda),opts_unc);
+            Lambda=gpuArray(Lambda);
+        else
+            [Lambda,objf(3)]=fminunc(@(q)-logLik_Lambda(q)-ker3.matn0pdf(q),Lambda,opts_unc);
+        end
         % update marginal kernel
         mgC=mgC.update(mgC.stgp.update([],[],Lambda));
     end
