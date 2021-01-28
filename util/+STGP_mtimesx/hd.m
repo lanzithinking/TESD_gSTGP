@@ -98,7 +98,7 @@ classdef hd
                 if contains(self.ker_opt,'sep')
                     C_xtv=self.C_t.mult(self.C_x.mult(v),'t'); % (I,J,K_)
                     if nargout>1
-                        C_zv=reshape(C_xtv+beta.*v,self.N,[]); % (IJ,K_)
+                        C_zv=reshape(C_xtv+((alpha>=0).*self.jit+beta).*v,self.N,[]); % (IJ,K_)
                     end
                     C_xtv=reshape(C_xtv,self.N,[]); % (IJ,K_)
                 else
@@ -158,7 +158,7 @@ classdef hd
             if contains(self.ker_opt,'sep')
                 C_xt=kron(self.C_t.tomat(),self.C_x.tomat());
                 if nargout>1
-                    C_z=C_xt+beta.*speye(self.N);
+                    C_z=C_xt+((alpha>=0).*self.jit+beta).*speye(self.N);
                 end
             else
                 Lambda_=(self.Lambda.^self.opt+self.jit.*(alpha<0)).^alpha; Phi_x=self.C_x.eigs(self.L);
