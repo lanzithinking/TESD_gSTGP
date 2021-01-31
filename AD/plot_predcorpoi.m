@@ -141,10 +141,11 @@ else
                 Lambda_n=shiftdim(samp_Lambda(n,:,:));
                 C_tilt=ker{3}.tomat;
                 Lambda_te=C_tilt(end,1:end-1)/C_tilt(1:end-1,1:end-1)*Lambda_n;
+                stgp=stgp.update(stgp.C_x.update([],exp(samp_eta(n,1))));
                 switch l
                     case 1
                         ker_te=feval([stgp_ver,'.GP'],t_hld(end),ker{2}.sigma2,ker{2}.l,stgp.C_t.s,1,stgp.C_t.jit,false);
-                        stgp=stgp.update(stgp.C_x.update([],exp(samp_eta(n,1))),ker_te,Lambda_te);
+                        stgp=stgp.update([],ker_te,Lambda_te);
                         [~,C_z_te]=stgp.tomat; % maybe oversized!
                         var_te=C_z_te(sub2ind([I,I],1:I,1:I))';
                         corpoi_te=C_z_te(:,poidx)./sqrt(var_te(poidx))'./sqrt(var_te);
@@ -202,7 +203,7 @@ if exist([folder,f_name,'.mat'],'file')
     set(fig,'pos',[0 800 1000 400]);
 %     ha=tight_subplot(2,L_grp,[.07,.05],[.06,.07],[.04,.05]);
     ha=tight_subplot(1,L_grp,[.07,.05],[.06,.07],[.05,.06]);
-    clim=[+Inf,-Inf];
+    clim=[-Inf,+Inf];
 %     clim=[0,1];
     
 %     [~,poi_idx]=get_roipoi; 
