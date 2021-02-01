@@ -49,7 +49,7 @@ classdef GL
                     end
                 end
             end
-            self.d=length(self.imsz); self.N=prod(self.imsz);
+            self.d=length(self.imsz); self.N=size(self.g.Nodes,1);
             if exist('sigma2','var') && ~isempty(sigma2)
                 self.sigma2=sigma2;
             end
@@ -72,9 +72,11 @@ classdef GL
             else
                 self.Lap=laplacian(self.g); % unweighted Laplacian
             end
-            % adjust for the graph size
-            self.Lap=self.Lap./(self.N.^(1-2./self.d).*(log(self.N)).^(1+2./self.d));
-%             self.Lap=self.Lap./self.N;
+            if self.d>=2
+                % adjust for the graph size
+                self.Lap=self.Lap./(self.N.^(1-2./self.d).*(log(self.N)).^(1+2./self.d));
+%                 self.Lap=self.Lap./self.N;
+            end
             if exist('L','var') && ~isempty(L)
                 self.L=L;
             else
@@ -300,7 +302,9 @@ classdef GL
                 self.Lap=spdiags(degree(self.g),0,self.N,self.N)-adjacency(self.g,'weighted');
                 rtdgl=sqrt(degree(self.g));
                 self.Lap=self.Lap./rtdgl./rtdgl';
-                self.Lap=self.Lap./(self.N.^(1-2./self.d).*(log(self.N)).^(1+2./self.d));
+                if self.d>=2
+                    self.Lap=self.Lap./(self.N.^(1-2./self.d).*(log(self.N)).^(1+2./self.d));
+                end
                 if self.store_eig
                     [self.eigf,self.eigv]=self.eigs([],true);
                 end
