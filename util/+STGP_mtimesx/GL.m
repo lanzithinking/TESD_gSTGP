@@ -23,9 +23,10 @@ classdef GL
         jit=1e-6; % jitter added to the kernel
         eigf,eigv; % partial (L) eigenpair of the kernel
         store_eig=true; % indicator whether to store eigenpair
+        spdapx=false; % use speed up (e.g. parfor) or approximation
     end
     methods
-        function self=GL(g,sigma2,tau2,s,L,jit,store_eig)
+        function self=GL(g,sigma2,tau2,s,L,jit,store_eig,spdapx)
             % constructor
             % initialization
             if exist('g','var') && isa(g,'graph')
@@ -96,6 +97,11 @@ classdef GL
                 % obtain partial eigen-basis
                 [self.eigf,self.eigv]=self.eigs;
             end
+            if exist('spdapx','var') && ~isempty(spdapx)
+                self.spdapx=spdapx;
+            elseif self.N>1e3
+                self.spdapx=true;
+            end
         end
         
         function P=prec(self,alpha)
@@ -120,7 +126,7 @@ classdef GL
         function C=tomat(self)
             % return the kernel in matrix format C=sigma2 P^-s
             C=self.sigma2.*(self.prec(-self.s)+self.jit.*speye(self.N));
-            if self.N>1e3 && ~issparse(C)
+            if self.spdapx && ~issparse(C)
                 warning('Possible memory overflow!');
             end
         end
@@ -131,19 +137,8 @@ classdef GL
                 v=reshape(v,self.N,[]);
             end
             trans=(~isempty(varargin)&&contains(varargin{1},{'t','T'}));
-            mdivf=@(a,b)mldivide(a,b(:,:));
-            if ndims(v)<=2
-                if trans
-                    mdivf=@(a,b)mldivide(a,b')';
-                end
-            else
-                mdivf=@(a,b)reshape(mdivf(a,b),size(b,1),size(b,2),[]);
-                if trans
-                    mdivf=@(a,b)permute(mdivf(a,premute(b,[2,1,3])),[2,1,3]);
-                end
-            end
             Ps=self.prec(self.s);
-            Cv=mdivf(Ps,v).*self.sigma2;
+            Cv=mdivf(Ps,v,trans).*self.sigma2;
         end
         
         function invCv=solve(self,v,varargin)
@@ -152,20 +147,8 @@ classdef GL
                 v=reshape(v,self.N,[]);
             end
             trans=(~isempty(varargin)&&contains(varargin{1},{'t','T'}));
-            if ndims(v)<=2
-                if ~trans
-                    multf=@mtimes;
-                else
-                    multf=@(a,b)mtimes(a,b')';
-                end
-            else
-                multf=@(a,b)mtimesx(a,b,varargin{:});
-            end
             Ps=self.prec(self.s);
-            invCv=multf(Ps,v)./self.sigma2;
-            if ndims(v)>2 && trans
-                invCv=permute(invCv,[2,1,3]);
-            end
+            invCv=multf(Ps,v,trans)./self.sigma2;
         end
         
         function [eigf,eigv]=eigs(self,L,upd,alpha)
@@ -211,38 +194,15 @@ classdef GL
             if size(x,1)~=self.N
                 x=reshape(x,self.N,[]);
             end
-            if alpha==1
-                y=self.mult(x);
-            elseif alpha==-1
-                y=self.solve(x);
-%             elseif abs(alpha)==0.5 && self.N<=1e3
-%                 C=self.tomat;
-%                 cholC=chol(C,'lower');
-%                 if alpha>=0
-%                     y=cholC*x;
-%                 else
-%                     y=cholC\x;
-%                 end
-            else
-                trans=(~isempty(varargin)&&contains(varargin{1},{'t','T'}));
-                if ndims(x)<=2
-                    if ~trans
-                        multf=@mtimes;
-                    else
-                        multf=@(a,b)mtimes(a,b');
-                    end
-                else
-                    multf=@(a,b)mtimesx(a,b,varargin{:});
-                end
-                [eigf,eigv]=self.eigs;
-                y=mtimesx(eigf,(((alpha<0).*self.jit+eigv).^alpha.*multf(eigf',x)));
-                if trans
-                    if ndims(x)<=2
-                        y=y';
-                    else
-                        y=permute(y,[2,1,3]);
-                    end
-                end
+            switch alpha
+                case 1
+                    y=self.mult(x);
+                case -1
+                    y=self.solve(x);
+                otherwise
+                    trans=(~isempty(varargin)&&contains(varargin{1},{'t','T'}));
+                    [eigf,eigv]=self.eigs;
+                    y=multf(eigf.*((alpha<0).*self.jit+eigv)'.^alpha,multf(eigf',x,trans),trans);
             end
         end
         
@@ -260,19 +220,12 @@ classdef GL
             if size(X,1)~=self.N
                 X=reshape(X,self.N,[]);
             end
-            if self.N<=1e3
-                C=self.tomat;
-                cholC=chol(C,'lower');
-                half_ldet=-size(X,2).*sum(log(diag(cholC)));
-                half_quad=cholC\X(:,:);
-            else
-%                 [eigf,eigv]=self.eigs;
-%                 rteigv=sqrt(abs(eigv)+self.jit);
-%                 half_ldet=-size(X,2).*sum(log(rteigv));
-                half_ldet=-size(X,2).*self.logdet./2;
-%                 half_quad=(eigf'*X)./rteigv;
-                half_quad=self.prec(self.s/2)*X./sqrt(self.sigma2);
-            end
+%             [eigf,eigv]=self.eigs;
+%             rteigv=sqrt(abs(eigv)+self.jit);
+%             half_ldet=-size(X,2).*sum(log(rteigv));
+            half_ldet=-size(X,2).*self.logdet./2;
+%             half_quad=(eigf'*X)./rteigv;
+            half_quad=self.prec(self.s/2)*X./sqrt(self.sigma2);
             quad=-.5*sum(half_quad(:).^2)./nu;
             logpdf=half_ldet+quad;
         end
@@ -324,4 +277,44 @@ classdef GL
         end
         
     end
+end
+
+function C=multf(A,B,trans)
+% A is a symmetric matrix, B is 2d or 3d; output is of the same size as B
+if ~exist('trans','var') || isempty(trans)
+    trans=false;
+end
+if ndims(B)<=2
+    if ~trans
+        C=A*B;
+    else
+        C=B*A';
+    end
+else
+    C=mtimesx(A,B,trans);
+    if trans
+        C=permute(C,[2,1,3]);
+    end
+end
+end
+
+function C=mdivf(A,B,trans)
+% A is a symmetric matrix, B is 2d or 3d; output is of the same size as B
+if ~exist('trans','var') || isempty(trans)
+    trans=false;
+end
+if ndims(B)<=2
+    if ~trans
+        C=A\B;
+    else
+        C=B/A';
+    end
+else
+    mdiv=@(a,b)reshape(mldivide(a,b(:,:)),size(b,1),size(b,2),[]);
+    if ~trans
+        C=mdiv(A,B);
+    else
+        C=permute(mdiv(A,premute(B,[2,1,3])),[2,1,3]);
+    end
+end
 end

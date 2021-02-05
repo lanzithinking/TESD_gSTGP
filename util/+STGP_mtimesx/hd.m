@@ -23,9 +23,10 @@ classdef hd
         jit=1e-6; % jitter added to joint kernel
         eigf,eigv; % partial (L) eigenpair of the joint kernel
         store_eig=false; % indicator whether to store eigenpair
+        spdapx=false; % use speed up (e.g. parfor) or approximation; number of workers when it is numeric
     end
     methods
-        function self=hd(C_x,C_t,Lambda,kappa,opt,jit,store_eig)
+        function self=hd(C_x,C_t,Lambda,kappa,opt,jit,store_eig,spdapx)
             % constructor
             % initialization
             self.C_x=C_x;
@@ -70,6 +71,19 @@ classdef hd
                 % obtain partial eigen-basis
                 [self.eigf,self.eigv]=self.eigs;
             end
+            if exist('spdapx','var') && ~isempty(spdapx)
+                self.spdapx=spdapx;
+            elseif self.N>1e3
+                self.spdapx=true;
+            end
+            if isnumeric(self.spdapx) && self.spdapx>1
+                clst = parcluster('local');
+                max_wkr= clst.NumWorkers;
+                poolobj=gcp('nocreate');
+                if isempty(poolobj)
+                    poolobj=parpool('local',min([self.spdapx,max_wkr]));
+                end
+            end
         end
         
         function [C_xtv,C_zv]=mult(self,v,alpha,beta)
@@ -80,7 +94,7 @@ classdef hd
             if ~exist('beta','var') || isempty(beta)
                 beta=self.opt==2; % coefficient before likelihood component
             end
-            if self.N<=1e3
+            if ~self.spdapx
                 if size(v,1)~=self.N
                     v=reshape(v,self.N,[]); % (IJ,K_)
                 end
@@ -208,7 +222,7 @@ classdef hd
                     if size(v,1)~=self.N
                         v=reshape(v,self.N,[]);
                     end
-                    if self.N<=1e3
+                    if ~self.spdapx
                         [~,C_z]=self.tomat([],[],true);
                         invCv=C_z\v;
                     else
@@ -251,7 +265,7 @@ classdef hd
                             warning('Requested too many eigenvalues!');
                         end
                     case 'kron_prod'
-                        if self.N<=1e3
+                        if ~self.spdapx
                             [~,C_z]=self.tomat;
                             [eigf,eigv]=eigs(C_z,L,'lm','Tolerance',1e-10,'MaxIterations',100);
                         else
@@ -332,13 +346,17 @@ classdef hd
                 if size(X,1)~=self.N
                     X=reshape(X,self.N,[]);
                 end
-                [eigf,eigv]=self.eigs;
-                rteigv=sqrt(abs(eigv));
-                half_ldet=-size(X,2).*sum(log(rteigv));
-                half_quad=(eigf'*X)./rteigv;
-%                 warning('Obsolete!');
+                if ~self.spdapx
+                    half_ldet=-size(X,2).*self.logdet./2;
+                    half_quad=X.*self.solve(X); % qaud
+                else
+                    [eigf,eigv]=self.eigs;
+                    rteigv=sqrt(abs(eigv)+self.jit);
+                    half_ldet=-size(X,2).*sum(log(rteigv));
+                    half_quad=(eigf'*X)./rteigv;
+                end
             end
-            quad=-.5*sum(half_quad(:).^2)./nu;
+            quad=-.5*sum(half_quad(:).^(2-(self.opt~=2)*~self.spdapx))./nu;
             logpdf=half_ldet+quad;
         end
         

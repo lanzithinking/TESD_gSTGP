@@ -16,9 +16,10 @@ classdef isub
         L; % Karhunen-Loeve truncation number
         eigf,eigv; % partial (L) eigenpair of the marginal kernel
         store_eig=false; % indicator whether to store eigenpair
+        spdapx=false; % use speed up (e.g. parfor) or approximation; number of workers when it is numeric
     end
     methods
-        function self=isub(stgp,K,L,store_eig)
+        function self=isub(stgp,K,L,store_eig,spdapx)
             % constructor
             % initialization
             self.stgp=stgp;
@@ -37,6 +38,19 @@ classdef isub
                 % obtain partial eigen-basis
                 [self.eigf,self.eigv]=self.eigs;
             end
+            if exist('spdapx','var') && ~isempty(spdapx)
+                self.spdapx=spdapx;
+            elseif self.stgp.L*self.stgp.J>1e3
+                self.spdapx=true;
+            end
+            if isnumeric(self.spdapx) && self.spdapx>1
+                clst = parcluster('local');
+                max_wkr= clst.NumWorkers;
+                poolobj=gcp('nocreate');
+                if isempty(poolobj)
+                    poolobj=parpool('local',min([self.spdapx,max_wkr]));
+                end
+            end
         end
         
         function Sv=mult(self,v,alpha)
@@ -49,12 +63,11 @@ classdef isub
                 error('Wrong exponent of action!');
             end
             [J,L]=deal(self.stgp.J,self.stgp.L);
-            if L*J<=1e3
+            if ~self.spdapx
                 if size(v,1)~=L*J
                     v=reshape(v,L*J,[]); % (LJ,K_)
                 end
-                S=self.tomat(alpha);
-                Sv=S*v;
+                Sv=self.tomat(alpha)*v;
             else
                 if size(v,1)~=L
                     v=reshape(v,L,J,[]); % (L,J,K_)
@@ -80,11 +93,9 @@ classdef isub
             S=spdiags(lambda2.^alpha,0,L*J,L*J); % (LJ,LJ)
             switch alpha
                 case 1
-                    C_tmat=self.stgp.C_t.tomat;
-                    S=S+kron(C_tmat,speye(L)); % (LJ,LJ)
+                    S=S+kron(self.stgp.C_t.tomat,speye(L)); % (LJ,LJ)
                 case -1
-                    invC_tmat=self.stgp.C_t.solve(speye(J));
-                    S=S+kron(invC_tmat,speye(L)); % (LJ,LJ)
+                    S=S+kron(self.stgp.C_t.solve(speye(J)),speye(L)); % (LJ,LJ)
             end
         end
         
@@ -101,7 +112,7 @@ classdef isub
                 lambda2=self.stgp.Lambda'.^2; lambda2=lambda2(:)./self.K;
                 lambda2v=lambda2.*v;
             end
-            if L*J<=1e3
+            if ~self.spdapx
                 if alpha==-1
 %                     S=self.tomat;
 %                     invSv=(S-spdiags(lambda2,0,L*J,L*J))*(S\(lambda2.*v));
@@ -153,7 +164,7 @@ classdef isub
                 eigf=eigf(:,1:L); eigv=eigv(1:L).^alpha;
             else
                 L=min([L,self.stgp.L*self.stgp.J]);
-                if self.stgp.L*self.stgp.J<=1e3
+                if ~self.spdapx
                     if alpha>0
                         S=self.tomat(alpha_);
                     else
@@ -189,21 +200,27 @@ classdef isub
             if ~exist('alpha_','var') || isempty(alpha_)
                 alpha_=1;
             end
-            if alpha==1
-                y=self.mult(x,alpha_);
-            elseif alpha==-1
-                y=self.solve(x,alpha_);
-            elseif abs(alpha)==0.5 && size(x,1)<=1e3
-                S=self.tomat(alpha_);
-                cholS=chol(S,'lower');
-                if alpha>=0
-                    y=cholS*x;
-                else
-                    y=cholS\x;
-                end
-            else
-                [eigf,eigv]=self.eigs([],[],alpha,alpha_);
-                y=eigf*(eigv.*(eigf'*x));
+            switch alpha
+                case 1
+                    y=self.mult(x,alpha_);
+                case -1
+                    y=self.solve(x,alpha_);
+                otherwise
+                    nochol=1;
+                    if abs(alpha)==0.5 && ~self.spdapx
+                        [cholS,nochol]=chol(self.tomat(alpha_),'lower');
+                        if ~nochol
+                            if alpha>=0
+                                y=cholS*x;
+                            else
+                                y=cholS\x;
+                            end
+                        end
+                    end
+                    if nochol
+                        [eigf,eigv]=self.eigs([],[],alpha,alpha_);
+                        y=eigf*(eigv.*(eigf'*x));
+                    end
             end
         end
         

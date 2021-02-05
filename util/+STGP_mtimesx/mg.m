@@ -42,7 +42,10 @@ classdef mg
                 % obtain partial eigen-basis
                 [self.eigf,self.eigv]=self.eigs;
             end
-            self.isub=feval([strtok(class(stgp),'.'),'.isub'],self.stgp,self.K,self.L,self.store_eig);
+            if self.stgp.opt==2
+                self.isub=feval([strtok(class(stgp),'.'),'.isub'],self.stgp,self.K,self.L,self.store_eig);
+%                 self.isub=isub(self.stgp,self.K,self.L,self.store_eig); % use on cluster
+            end
         end
         
         function mgCv=mult(self,v)
@@ -70,7 +73,7 @@ classdef mg
             if ~exist('woodbury','var') || isempty(woodbury)
                 woodbury=false;
             end
-            if self.stgp.N<=1e3
+            if ~self.stgp.spdapx
                 if size(v,1)~=self.stgp.N
                     v=reshape(v,self.stgp.N,[]);
                 end
@@ -117,9 +120,8 @@ classdef mg
                 eigf=eigf(:,1:L); eigv=eigv(1:L);
             else
                 L=min([L,self.stgp.N]);
-                if self.stgp.N<=1e3
-                    mgC=self.tomat;
-                    [eigf,eigv]=eigs(mgC,L,'lm','Tolerance',1e-10,'MaxIterations',100);
+                if ~self.stgp.spdapx
+                    [eigf,eigv]=eigs(self.tomat,L,'lm','Tolerance',1e-10,'MaxIterations',100);
                 else
                     [eigf,eigv]=eigs(@self.mult,self.stgp.N,L,'lm','Tolerance',1e-10,'MaxIterations',100,'IsFunctionSymmetric',true); % (IJ,L)
                 end
@@ -191,8 +193,10 @@ classdef mg
                 if self.store_eig
                     [self.eigf,self.eigv]=self.eigs([],true);
                 end
-                % update isub
-                self.isub=self.isub.update(self.stgp);
+                if self.stgp.opt==2
+                    % update isub
+                    self.isub=self.isub.update(self.stgp);
+                end
             end
             if exist('nz_var','var') && ~isempty(nz_var) && self.stgp.opt~=2
                 nz_var_=self.nz_var;

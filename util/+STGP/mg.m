@@ -42,7 +42,10 @@ classdef mg
                 % obtain partial eigen-basis
                 [self.eigf,self.eigv]=self.eigs;
             end
-            self.isub=feval([strtok(class(stgp),'.'),'.isub'],self.stgp,self.K,self.L,self.store_eig);
+            if self.stgp.opt==2
+                self.isub=feval([strtok(class(stgp),'.'),'.isub'],self.stgp,self.K,self.L,self.store_eig);
+%                 self.isub=isub(self.stgp,self.K,self.L,self.store_eig); % use on cluster
+            end
         end
         
         function mgCv=mult(self,v)
@@ -70,7 +73,7 @@ classdef mg
             if ~exist('woodbury','var') || isempty(woodbury)
                 woodbury=false;
             end
-            if self.stgp.N<=1e3
+            if ~self.stgp.spdapx
                 if size(v,1)~=self.stgp.N
                     v=reshape(v,self.stgp.N,[]);
                 end
@@ -124,9 +127,8 @@ classdef mg
                 eigf=eigf(:,1:L); eigv=eigv(1:L);
             else
                 L=min([L,self.stgp.N]);
-                if self.stgp.N<=1e3
-                    mgC=self.tomat;
-                    [eigf,eigv]=eigs(mgC,L,'lm','Tolerance',1e-10,'MaxIterations',100);
+                if ~self.stgp.spdapx
+                    [eigf,eigv]=eigs(self.tomat,L,'lm','Tolerance',1e-10,'MaxIterations',100);
                 else
                     [eigf,eigv]=eigs(@self.mult,self.stgp.N,L,'lm','Tolerance',1e-10,'MaxIterations',100,'IsFunctionSymmetric',true); % (IJ,L)
                 end
@@ -198,8 +200,10 @@ classdef mg
                 if self.store_eig
                     [self.eigf,self.eigv]=self.eigs([],true);
                 end
-                % update isub
-                self.isub=self.isub.update(self.stgp);
+                if self.stgp.opt==2
+                    % update isub
+                    self.isub=self.isub.update(self.stgp);
+                end
             end
             if exist('nz_var','var') && ~isempty(nz_var) && self.stgp.opt~=2
                 nz_var_=self.nz_var;
@@ -220,12 +224,16 @@ classdef mg
                     M0=self.stgp.act(self.act(mvn0Irv(:).*sqrt(self.nz_var/self.K),-0.5),.5); % (IJ,1)
                 case 'kron_sum'
                     MU=self.stgp.C_t.mult(reshape(self.solve(Ybar(:),true),self.stgp.I,self.stgp.J)')';% (I,J)
-                    if 0%self.stgp.N<=1e3
+                    nochol=1;
+                    if ~self.stgp.spdapx
                         C_tI_x=kron(self.stgp.C_t.tomat,speye(self.stgp.I));
                         Sigma=C_tI_x*self.solve(self.stgp.tomat./self.K);
-                        chol_Sigma=chol(Sigma,'lower');
-                        M0=reshape(chol_Sigma*mvn0Irv(:),self.stgp.I,self.stgp.J);
-                    else
+                        [chol_Sigma,nochol]=chol(Sigma,'lower');
+                        if ~nochol
+                            M0=reshape(chol_Sigma*mvn0Irv(:),self.stgp.I,self.stgp.J);
+                        end
+                    end
+                    if nochol
                         Phi_x=self.stgp.C_x.eigs(self.L);
                         Phirv=Phi_x'*mvn0Irv; % (L,J)
                         PhihalfinvSPhirv=Phi_x*reshape(self.isub.act(Phirv,-0.5,-1),self.stgp.L,self.stgp.J); % (I,J)

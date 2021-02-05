@@ -23,9 +23,10 @@ classdef GL
         jit=1e-6; % jitter added to the kernel
         eigf,eigv; % partial (L) eigenpair of the kernel
         store_eig=true; % indicator whether to store eigenpair
+        spdapx=false; % use speed up (e.g. parfor) or approximation
     end
     methods
-        function self=GL(g,sigma2,tau2,s,L,jit,store_eig)
+        function self=GL(g,sigma2,tau2,s,L,jit,store_eig,spdapx)
             % constructor
             % initialization
             if exist('g','var') && isa(g,'graph')
@@ -95,6 +96,12 @@ classdef GL
                 % obtain partial eigen-basis
                 [self.eigf,self.eigv]=self.eigs;
             end
+            if exist('spdapx','var') && ~isempty(spdapx)
+                self.spdapx=spdapx;
+            end
+            if self.N>1e3
+                self.spdapx=true;
+            end
         end
         
         function P=prec(self,alpha)
@@ -119,7 +126,7 @@ classdef GL
         function C=tomat(self)
             % return the kernel in matrix format C=sigma2 P^-s
             C=self.sigma2.*(self.prec(-self.s)+self.jit.*speye(self.N));
-            if self.N>1e3 && ~issparse(C)
+            if self.spdapx && ~issparse(C)
                 warning('Possible memory overflow!');
             end
         end
@@ -189,14 +196,6 @@ classdef GL
                 y=self.mult(x);
             elseif alpha==-1
                 y=self.solve(x);
-%             elseif abs(alpha)==0.5 && self.N<=1e3
-%                 C=self.tomat;
-%                 cholC=chol(C,'lower');
-%                 if alpha>=0
-%                     y=cholC*x;
-%                 else
-%                     y=cholC\x;
-%                 end
             else
                 [eigf,eigv]=self.eigs;
                 y=eigf*(((alpha<0).*self.jit+eigv).^alpha.*(eigf'*x));
@@ -217,19 +216,12 @@ classdef GL
             if size(X,1)~=self.N
                 X=reshape(X,self.N,[]);
             end
-            if self.N<=1e3
-                C=self.tomat;
-                cholC=chol(C,'lower');
-                half_ldet=-size(X,2).*sum(log(diag(cholC)));
-                half_quad=cholC\X(:,:);
-            else
-%                 [eigf,eigv]=self.eigs;
-%                 rteigv=sqrt(abs(eigv)+self.jit);
-%                 half_ldet=-size(X,2).*sum(log(rteigv));
-                half_ldet=-size(X,2).*self.logdet./2;
-%                 half_quad=(eigf'*X)./rteigv;
-                half_quad=self.prec(self.s/2)*X./sqrt(self.sigma2);
-            end
+%             [eigf,eigv]=self.eigs;
+%             rteigv=sqrt(abs(eigv)+self.jit);
+%             half_ldet=-size(X,2).*sum(log(rteigv));
+            half_ldet=-size(X,2).*self.logdet./2;
+%             half_quad=(eigf'*X)./rteigv;
+            half_quad=self.prec(self.s/2)*X./sqrt(self.sigma2);
             quad=-.5*sum(half_quad(:).^2)./nu;
             logpdf=half_ldet+quad;
         end

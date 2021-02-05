@@ -18,9 +18,10 @@ classdef GP
         jit=1e-6; % jitter added to the kernel
         eigf,eigv; % partial (L) eigenpair of the kernel
         store_eig=true; % indicator whether to store eigenpair
+        spdapx=false; % use speed up (e.g. parfor) or approximation; number of workers when it is numeric
     end
     methods
-        function self=GP(x,sigma2,l,s,L,jit,store_eig)
+        function self=GP(x,sigma2,l,s,L,jit,store_eig,spdapx)
             % constructor
             % initialization
             if exist('x','var') && ~isempty(x)
@@ -55,27 +56,28 @@ classdef GP
                 % obtain partial eigen-basis
                 [self.eigf,self.eigv]=self.eigs;
             end
+            if exist('spdapx','var') && ~isempty(spdapx)
+                self.spdapx=spdapx;
+            elseif self.N>1e3
+                self.spdapx=true;
+            end
+            if isnumeric(self.spdapx) && self.spdapx>1
+                clst = parcluster('local');
+                max_wkr= clst.NumWorkers;
+                poolobj=gcp('nocreate');
+                if isempty(poolobj)
+                    poolobj=parpool('local',min([self.spdapx,max_wkr]));
+                end
+            end
         end
         
         function Cv=mult(self,v,varargin)
             % mulitply a function (vector)
             trans=(~isempty(varargin)&&contains(varargin{1},{'t','T'}));
-            if ndims(v)<=2
-                if ~trans
-                    multf=@mtimes;
-                else
-                    multf=@(a,b)mtimes(a,b')';
-                end
+            if ~self.spdapx
+                Cv=multf(self.tomat,v,trans);
             else
-                multf=@(a,b)mtimesx(a,b,varargin{:});
-            end
-            if self.N<=1e3
-                Cv=multf(self.tomat,v);
-                if ndims(v)>2 && trans
-                    Cv=permute(Cv,[2,1,3]);
-                end
-            else
-                Cv=zeros(size(v)); 
+                Cv=zeros(size(v));
                 if ~isempty(gcp('nocreate'))
                     if ~trans
                         parfor i=1:self.N
@@ -107,7 +109,7 @@ classdef GP
             % return the kernel in matrix format
             C=exp(-.5.*(pdist2(self.x,self.x,'minkowski',self.s)./self.l).^self.s)+self.jit.*speye(self.N);
             C=C.*self.sigma2;
-            if self.N>1e3
+            if self.spdapx && ~issparse(C)
                 warning('Possible memory overflow!');
             end
         end
@@ -115,19 +117,8 @@ classdef GP
         function invCv=solve(self,v,varargin)
             % solve a funciton (vector)
             trans=(~isempty(varargin)&&contains(varargin{1},{'t','T'}));
-            mdivf=@(a,b)mldivide(a,b(:,:));
-            if ndims(v)<=2
-                if trans
-                    mdivf=@(a,b)mldivide(a,b')';
-                end
-            else
-                mdivf=@(a,b)reshape(mdivf(a,b),size(b,1),size(b,2),[]);
-                if trans
-                    mdivf=@(a,b)permute(mdivf(a,premute(b,[2,1,3])),[2,1,3]);
-                end
-            end
-            if self.N<=1e3
-                invCv=mdivf(self.tomat,v);
+            if ~self.spdapx
+                invCv=mdivf(self.tomat,v,trans);
             else
                 if trans
                     v=permute(v,[2,1,3]);
@@ -164,9 +155,8 @@ classdef GP
                 eigf=eigf(:,1:L); eigv=eigv(1:L);
             else
                 L=min([L,self.N]);
-                if self.N<=1e3
-                    C=self.tomat;
-                    [eigf,eigv]=eigs(C,L,'lm','Tolerance',1e-10,'MaxIterations',100); % (N,L)
+                if ~self.spdapx
+                    [eigf,eigv]=eigs(self.tomat,L,'lm','Tolerance',1e-10,'MaxIterations',100); % (N,L)
                 else
                     [eigf,eigv]=eigs(@self.mult,self.N,L,'lm','Tolerance',1e-10,'MaxIterations',100,'IsFunctionSymmetric',true); % (N,L)
                 end
@@ -189,23 +179,20 @@ classdef GP
                     y=self.solve(x,varargin{:});
                 otherwise
                     trans=(~isempty(varargin)&&contains(varargin{1},{'t','T'}));
-                    if ndims(x)<=2
-                        if ~trans
-                            multf=@mtimes;
-                        else
-                            multf=@(a,b)mtimes(a,b');
+                    nochol=1;
+                    if abs(alpha)==0.5 && ~self.spdapx
+                        [cholC,nochol]=chol(self.tomat,'lower');
+                        if ~nochol
+                            if alpha>=0
+                                y=multf(cholC,x,trans);
+                            else
+                                y=mdivf(cholC,x,trans);
+                            end
                         end
-                    else
-                        multf=@(a,b)mtimesx(a,b,varargin{:});
                     end
-                    [eigf,eigv]=self.eigs;
-                    y=mtimesx(eigf,(((alpha<0).*self.jit+eigv).^alpha.*multf(eigf',x)));
-                    if trans
-                        if ndims(x)<=2
-                            y=y';
-                        else
-                            y=permute(y,[2,1,3]);
-                        end
+                    if nochol
+                        [eigf,eigv]=self.eigs;
+                        y=multf(eigf.*((alpha<0).*self.jit+eigv)'.^alpha,multf(eigf',x,trans),trans);
                     end
             end
         end
@@ -221,22 +208,21 @@ classdef GP
             if ~exist('nu','var') || isempty(nu)
                 nu=1;
             end
-            nochol=1;
-            if self.N<=1e3
-                C=self.tomat;
-                [cholC,nochol]=chol(C,'lower');
+            nochol=0;
+            if ~self.spdapx
+                [cholC,nochol]=chol(self.tomat,'lower');
                 if ~nochol
                     half_ldet=-size(X,2).*sum(log(diag(cholC)));
                     half_quad=cholC\X(:,:);
+                else
+                    half_ldet=-size(X,2).*self.logdet./2;
+                    half_quad=X.*self.solve(X); % quad
                 end
-            end
-            if nochol
-%                 [eigf,eigv]=self.eigs;
-%                 rteigv=sqrt(abs(eigv)+self.jit);
-%                 half_ldet=-size(X,2).*sum(log(rteigv));
-                half_ldet=-size(X,2).*self.logdet./2;
-%                 half_quad=(eigf'*X)./rteigv;
-                half_quad=X.*self.solve(X);
+            else
+                [eigf,eigv]=self.eigs;
+                rteigv=sqrt(abs(eigv)+self.jit);
+                half_ldet=-size(X,2).*sum(log(rteigv));
+                half_quad=(eigf'*X)./rteigv;
             end
             quad=-.5*sum(half_quad(:).^(2-nochol))./nu;
             logpdf=half_ldet+quad;
@@ -272,4 +258,44 @@ classdef GP
         end
         
     end
+end
+
+function C=multf(A,B,trans)
+% A is a symmetric matrix, B is 2d or 3d; output is of the same size as B
+if ~exist('trans','var') || isempty(trans)
+    trans=false;
+end
+if ndims(B)<=2
+    if ~trans
+        C=A*B;
+    else
+        C=B*A';
+    end
+else
+    C=mtimesx(A,B,trans);
+    if trans
+        C=permute(C,[2,1,3]);
+    end
+end
+end
+
+function C=mdivf(A,B,trans)
+% A is a symmetric matrix, B is 2d or 3d; output is of the same size as B
+if ~exist('trans','var') || isempty(trans)
+    trans=false;
+end
+if ndims(B)<=2
+    if ~trans
+        C=A\B;
+    else
+        C=B/A';
+    end
+else
+    mdiv=@(a,b)reshape(mldivide(a,b(:,:)),size(b,1),size(b,2),[]);
+    if ~trans
+        C=mdiv(A,B);
+    else
+        C=permute(mdiv(A,premute(B,[2,1,3])),[2,1,3]);
+    end
+end
 end
