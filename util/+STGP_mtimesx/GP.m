@@ -83,13 +83,13 @@ classdef GP
                         parfor i=1:self.N
                             row_i=exp(-.5.*(pdist2(self.x(i,:),self.x,'minkowski',self.s)./self.l).^self.s);
                             row_i(i)=row_i(i)+self.jit;
-                            Cv(i,:,:)=multf(row_i,v);
+                            Cv(i,:,:)=multf(row_i,v,trans);
                         end
                     else
                         parfor i=1:self.N
                             row_i=exp(-.5.*(pdist2(self.x(i,:),self.x,'minkowski',self.s)./self.l).^self.s);
                             row_i(i)=row_i(i)+self.jit;
-                            Cv(:,i,:)=multf(row_i,v);
+                            Cv(:,i,:)=multf(row_i,v,trans);
                         end
                     end
                 else
@@ -98,7 +98,7 @@ classdef GP
                         row_i=exp(-.5.*(pdist2(self.x(i,:),self.x,'minkowski',self.s)./self.l).^self.s);
                         row_i(i)=row_i(i)+self.jit;
                         S.subs{i_dim}=i;
-                        Cv=subsasgn(Cv,S,multf(row_i,v));
+                        Cv=subsasgn(Cv,S,multf(row_i,v,trans));
                     end
                 end
                 Cv=Cv.*self.sigma2; % same size of v
