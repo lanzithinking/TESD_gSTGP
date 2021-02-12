@@ -270,12 +270,16 @@ for iter=1:Niter
     ker{3}=ker{3}.update([],exp(eta(3)));
     mgC=mgC.update(mgC.stgp.update(mgC.stgp.C_x.update([],exp(eta(1))),mgC.stgp.C_t.update([],exp(eta(2)))));
     
-    % sample Lambda with ESS
-    logLik_Lambda=@(q)loglik_Lambda(q,mgC,y,M);
-    prirnd_Lambda=@()mgC.stgp.scale_Lambda(ker{3}.rnd([],L),'dn');
-    [Lambda,l_Lambda] = ESS(Lambda,logLik_Lambda(Lambda),prirnd_Lambda,logLik_Lambda);
-    % update marginal kernel
-    mgC=mgC.update(mgC.stgp.update([],[],Lambda));
+    if mgC.stgp.opt
+        % sample Lambda with ESS
+        logLik_Lambda=@(q)loglik_Lambda(q,mgC,y,M);
+        prirnd_Lambda=@()mgC.stgp.scale_Lambda(ker{3}.rnd([],L),'dn');
+        [Lambda,l_Lambda] = ESS(Lambda,logLik_Lambda(Lambda),prirnd_Lambda,logLik_Lambda);
+        % update marginal kernel
+        mgC=mgC.update(mgC.stgp.update([],[],Lambda));
+    else
+        l_Lambda=0;
+    end
     
     % sample M directly
     if sampleM
@@ -298,7 +302,9 @@ for iter=1:Niter
         NO_sav=ceil((iter-NBurnIn)/thin);
         samp_sigma2(NO_sav,:)=sigma2;
         samp_eta(NO_sav,:)=eta;
-        samp_Lambda(NO_sav,:,:)=Lambda;
+        if mgC.stgp.opt
+            samp_Lambda(NO_sav,:,:)=Lambda;
+        end
         if sampleM
             if max([I,J])>Nsamp
                 samp_M(:,:,1)=samp_M(:,:,1)+M;

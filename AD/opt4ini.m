@@ -121,7 +121,7 @@ for iter=1:Nmax
         ker3=ker3.update([],exp(eta(3)));
         mgC=mgC.update(mgC.stgp.update(mgC.stgp.C_x.update([],exp(eta(1))),mgC.stgp.C_t.update([],exp(eta(2)))));
     end
-    if opt_id(3)
+    if opt_id(3) && mgC.stgp.opt
         % update Lambda
         logLik_Lambda=@(q)loglik_Lambda(q,mgC,y,M);
         if isgpuarray(Lambda)

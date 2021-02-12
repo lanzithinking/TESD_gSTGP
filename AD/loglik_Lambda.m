@@ -10,6 +10,8 @@ else
     intM=true;
 end
 
+if mgC.stgp.opt
+
 % update marginal kernel
 mgC=mgC.update(mgC.stgp.update([],[],Lambda));
 
@@ -22,11 +24,13 @@ if intM
     end
 else
     switch mgC.stgp.ker_opt
-        case {'sep','kron_prod'}
+        case 'kron_prod'
             loglik=mgC.stgp.matn0pdf(M(:));
         case 'kron_sum'
             loglik=mgC.stgp.matn0pdf(y-M);
     end
+end
+
 end
 
 end
