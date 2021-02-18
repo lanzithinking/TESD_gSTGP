@@ -40,8 +40,8 @@ classdef isub
             end
             if exist('spdapx','var') && ~isempty(spdapx)
                 self.spdapx=spdapx;
-            elseif self.stgp.L*self.stgp.J>1e3
-                self.spdapx=true;
+            else
+                self.spdapx=self.stgp.spdapx;
             end
             if isnumeric(self.spdapx) && self.spdapx>1
                 clst = parcluster('local');
