@@ -29,8 +29,8 @@ classdef GL
         function self=GL(g,sigma2,tau2,s,L,jit,store_eig,spdapx)
             % constructor
             % initialization
-            if exist('g','var') && isa(g,'graph')
-                self.g=g; % g is a graph or image size
+            if exist('g','var') && isfield(g,'graph')
+                self.g=g.graph; % g is a graph or image size
                 self.imsz=max(self.g.Nodes{:,1:end-1});
             else
                 if ~isfield(g,'size')

@@ -3,11 +3,14 @@
 % 2. TESD to neighbors.
 
 clear;
+sufx={'','_mtimesx','_gpu'};
+stgp_ver=['STGP',sufx{2}];
 addpath('../util/');
-addpath('~/Documents/MATLAB/tight_subplot/');
-% addpath('~/Documents/MATLAB/boundedline/');
-addpath(genpath('~/Documents/MATLAB/boundedline-pkg/'));
-% addpath('~/Documents/MATLAB/supertitle/');
+if contains(stgp_ver,'mtimesx')
+    addpath('../util/mtimesx/');
+end
+addpath('../util/tight_subplot/');
+addpath(genpath('../util/boundedline-pkg/'));
 % Random Numbers...
 seedNO = 2018;
 seed = RandStream('mt19937ar','Seed',seedNO);
@@ -18,17 +21,27 @@ predcovs=strcat('TESD to',{' future',' neighbor'});
 L_pred=length(predcovs);
 
 % model
-models={'kron_prod','kron_sum'};
-mdl=models{2};
+models={'sep','kron_prod','kron_sum'};
+mdl=models{3};
+upthypr=1;
+intM=false;
+alg_name='MCMC';
+if upthypr>=2
+    alg_name=['opt',alg_name];
+    if upthypr==3
+        alg_name=['jt',alg_name];
+    end
+end
+stationary=false;
 
 %% data
 
 % parameters setting
 N=[200,100]; % discretization sizes for space and time domains
-K=1000; % number of trials
+K=100; % number of trials
 d=1; % space dimension
 % load or simulate data
-[x,t,y]=generate_data(N,K,d,seedNO);
+[x,t,y]=generate_data(N,K,d,stationary,seedNO);
 l_x=0.5; l_t=0.3; l_xt=sqrt(l_x*l_t);
 sigma2_n=1e-2; % noise variance
 
@@ -51,19 +64,11 @@ Times=[J_tr,J];
 
 % parameters of kernel
 s=2; % smoothness
+kappa=1.2; % decaying rate for dynamic eigenvalues
 % spatial kernel
-if d==1
-    dist_x=pdist2(x,x,@(XI,XJ)abs(bsxfun(@minus,XI,XJ)).^s);
-else
-    dist_x=sum(abs(reshape(x,I,1,[])-reshape(x,1,I,[])).^s,3);
-end
-jit_x=1e-6.*speye(I);
-ker{1}.s=s;ker{1}.dist=dist_x;ker{1}.jit=jit_x;
+jit_x=1e-6;
 % temporal kernels
-dist_t=pdist2(t,t,@(XI,XJ)abs(bsxfun(@minus,XI,XJ)).^s);
-jit_t=1e-6.*speye(J);
-ker{2}.s=s;ker{2}.dist=dist_t;ker{2}.jit=jit_t;
-ker{3}=ker{2}; % for hyper-GP
+jit_t=1e-6;
 
 % distance to neighbors
 % dist_xte=pdist2(x_te,x_te,'minkowski',s).^s;
@@ -81,6 +86,7 @@ dist_xtex=pdist2(x_te,x,'minkowski',s).^s;
 % C_t_x=@(x)C_t.*exp(-abs(x.*(t-t'))./(2*l_xt))+sigma2_n.*eye(J);
 x_covf_t=@(x,t)exp(-(diff(x)).^2./(2*l_x)).*exp(-abs(diff(x)).*t./(2*l_xt))+sigma2_n.*(abs(diff(x))<1e-10);
 
+t_all=t; J_all=J;
 %% estimation
 
 % obtain prediction of joint covariance kernel from MCMC samples
@@ -88,7 +94,7 @@ x_covf_t=@(x,t)exp(-(diff(x)).^2./(2*l_x)).*exp(-abs(diff(x)).*t./(2*l_xt))+sigm
 folder = './summary/';
 files = dir(folder);
 nfiles = length(files) - 2;
-keywd = {[mdl,'_I',num2str(I)],['_K',num2str(K),'_L',num2str(L),'_d',num2str(d)]};
+keywd = {[alg_name,'_',repmat('intM_',1,intM),mdl,'_I',num2str(I)],['_K',num2str(K),'_L',num2str(L),'_d',num2str(d)]};
 f_name = ['predcovft_',keywd{:}];
 if exist([folder,f_name,'.mat'],'file')
     load([folder,f_name,'.mat']);
@@ -99,7 +105,7 @@ else
         found=false;
         for k=1:nfiles
             if contains(files(k+2).name,join(keywd,['_J',num2str(Times(l))]))
-                load(strcat(folder, files(k+2).name),'samp_*');
+                load(strcat(folder, files(k+2).name));
                 fprintf('%s loaded.\n',files(k+2).name);
                 found=true; break;
             end
@@ -111,23 +117,34 @@ else
                 j_dgix=permute(reshape(j_dgix,I,I_te,J),[1,3,2]);
             end
             N_samp=size(samp_sigma2,1);
+            if exist('mgC','var')&&isa(mgC,[stgp_ver,'.mg'])
+                stgp=mgC.stgp;
+            else
+                ker{1}=feval([stgp_ver,'.GP'],x,optini.sigma2(1),exp(optini.eta(1)),s,L,jit_x,true);
+                ker{2}=feval([stgp_ver,'.GP'],t,optini.sigma2(2),exp(optini.eta(2)),s,L,jit_t,true);
+                stgp=feval([stgp_ver,'.hd'],ker{1},ker{2},optini.Lambda,kappa,mdl_opt); %[ker{1:2}]=deal([]);
+                mgC=feval([stgp_ver,'.mg'],stgp,K,optini.sigma2(1),L);
+            end
+            ker{3}=feval([stgp_ver,'.GP'],t_all,[],[],stgp.C_t.s,stgp.C_t.L,stgp.C_t.jit);
             for n=1:N_samp
                 for k=1:length(ker)
-                    ker{k}.C=samp_sigma2(n,k)^(k~=1).*(exp(-.5.*ker{k}.dist.*exp(-ker{k}.s.*samp_eta(n,k)))+ker{k}.jit);
+                    ker{k}=ker{k}.update(samp_sigma2(n,k)^(k~=1),exp(samp_eta(n,k)));
                 end
-                Lambda_n=squeeze(samp_Lambda(n,:,:)); % (J_,L)
+                Lambda_n=shiftdim(samp_Lambda(n,:,:)); % (J_,L)
+                stgp=stgp.update(ker{1},ker{2},Lambda_n);
+%                 stgp=stgp.update(stgp.C_x.update([],exp(samp_eta(n,1))),stgp.C_t.update(samp_sigma2(n,2),exp(samp_eta(n,2))),Lambda_n);
+                [~,C_z_tr]=stgp.tomat();
                 switch l
                     case 1
-                        Lambda_te=ker{3}.C(te_j,tr_j)/ker{3}.C(tr_j,tr_j)*Lambda_n;
-                        C_z_tr=STGP(ker{1}.C,ker{2}.C(tr_j,tr_j),Lambda_n,mdl).get_jtker();
-                        C_z_te=STGP(ker{1}.C,ker{2}.C(te_j,te_j),Lambda_te,mdl).get_jtker();
+                        C_tilt=ker{3}.tomat;
+                        Lambda_te=C_tilt(te_j,tr_j)/C_tilt(tr_j,tr_j)*Lambda_n;
+                        ker_te=feval([stgp_ver,'.GP'],t_all(te_j),ker{2}.sigma2,ker{2}.l,stgp.C_t.s,1,stgp.C_t.jit,false);
+                        stgp_te=stgp.update([],ker_te,Lambda_te); stgp_te.N=stgp_te.I*stgp_te.J;
+                        [~,C_z_te]=stgp_te.tomat();
                     case 2
-                        stgp=STGP(ker{1}.C,ker{2}.C,Lambda_n,mdl);
-                        C_z_tr=stgp.get_jtker();
                         C_xteX=exp(-.5.*dist_xtex.*exp(-ker{1}.s.*samp_eta(n,1)));
-                        Phi_xteX=C_xteX*(stgp.Phi_x./stgp.Lambda_x');
-                        
-                        PhiLambda2=reshape(stgp.Phi_x,stgp.I,1,[]).*reshape(Lambda_n.^2,1,stgp.J,[]);
+                        Phi_xteX=C_xteX*(stgp.C_x.eigf./stgp.C_x.eigv');
+                        PhiLambda2=reshape(stgp.C_x.eigf,stgp.I,1,[]).*reshape(Lambda_n.^2,1,stgp.J,[]);
                         PhiLambda2=reshape(PhiLambda2,stgp.I*stgp.J,[]);
                         PhiLambda2=PhiLambda2*Phi_xteX';
                         C_z_te=sparse(i_dgix(:),j_dgix(:),PhiLambda2(:));

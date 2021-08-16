@@ -1,17 +1,20 @@
 % This is to generate simulated data of a spatio-temporal process
 % for multiple trials
 
-function [x,t,y]=generate_data(N,K,d,seedNO)
-if ~exist('N','var')
+function [x,t,y]=generate_data(N,K,d,stationary,seedNO)
+if ~exist('N','var') || isempty(N)
     N=[200,100]; % discretization sizes for space and time domains
 end
-if ~exist('K','var')
+if ~exist('K','var') || isempty(K)
     K=1; % number of trials
 end
-if ~exist('d','var')
+if ~exist('d','var') || isempty(d)
     d=1; % space dimension
 end
-if ~exist('seed','var')
+if ~exist('stationary','var') || isempty(stationary)
+    stationary=false;
+end
+if ~exist('seedNO','var') || isempty(seedNO)
     seedNO=2018;
 end
 
@@ -19,7 +22,7 @@ I=N(1)+1; J=N(2)+1;
 folder='./data/';
 files=dir(folder);
 nfiles=length(files)-2;
-keywds={['sim_STproc_I',num2str(I),'_J',num2str(J)],['_d',num2str(d)]};
+keywds={['simSTproc_I',num2str(I),'_J',num2str(J)],['_d',num2str(d),'_',repmat('non',1,~stationary),'stationary']};
 found=false;
 for k=1:nfiles
     if contains(files(k+2).name,keywds{1}) && contains(files(k+2).name,keywds{2})
@@ -35,7 +38,7 @@ for k=1:nfiles
 end
 if ~found
     % or generate data
-    [x,t,y,~]=sim_STproc(N,K,d,seedNO,true,false);
+    [x,t,y,~]=simSTproc(N,K,d,stationary,seedNO,true,false);
 end
 
 end

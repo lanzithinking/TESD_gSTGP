@@ -1,19 +1,27 @@
 % optimization for MCMC initialization
 % for multiple trials
 
-function [sigma2,eta,M,Lambda,objf]=opt4ini(sigma2,eta,M,Lambda,y,ker,a,b,m,V,mdl_opt,opt_id,jtopt,Nmax,thld)
+function [sigma2,eta,Lambda,M,mgC,ker3,objf]=opt4ini(sigma2,eta,Lambda,M,mgC,ker3,y,a,b,m,V,opt_id,intM,jtopt,Nmax,thld)
+if ~exist('opt_id','var') || isempty(opt_id)
+    opt_id=true(1,4);
+end
+if ~exist('intM','var') || isempty(intM)
+    intM=true;
+end
+if ~exist('jtopt','var') || isempty(jtopt)
+    jtopt=true;
+end
 if ~exist('Nmax','var')
     Nmax=100;
 end
 if ~exist('thld','var')
     thld=1e-3;
 end
-if ~exist('opt_id','var') || isempty(opt_id)
-    opt_id=true(1,4);
-end
-if ~exist('jtopt','var') || isempty(jtopt)
-    jtopt=true;
-end
+
+% compatible setting for M
+% if ~intM
+%     opt_id(end)=true;
+% end
 
 % dimension
 [I,J,K]=size(y); L=size(Lambda,2);
@@ -23,7 +31,6 @@ dlta=[I*J*K,I*J,J*L]./2;
 alpha=a+dlta;
 
 % initialization
-stgp=STGP(ker{1}.C,ker{2}.C,Lambda,mdl_opt);
 objf=nan(1,4);
 
 % optimization setting
@@ -39,90 +46,107 @@ for iter=1:Nmax
     % record current value
     sigma2_=sigma2;
     eta_=eta;
-    M_=M; % (I,J)
     Lambda_=Lambda; % (J,L)
+    M_=M; % (I,J)
     objf_=objf;
     
-    % display the progress
-    if ismember(iter,floor(Nmax.*prog))
-        fprintf('%.0f%% of max iterations completed.\n',100*iter/Nmax);
-    end
-    
     if opt_id(1)
-        % normalize C_t in stgp before updating sigma2
-        stgp.C_t=stgp.C_t./sigma2(2);
-        [C_z,C_xt]=stgp.get_jtker();
-        
         % update sigma2
-        switch mdl_opt
-            case 'kron_prod'
-                C0_pri=C_z; C0_lik=speye(stgp.I*stgp.J);
+        if intM
+            if mgC.stgp.opt~=2
                 % sigma2_eps
                 if ~jtopt
-                    logf{1}=@(q)logpost_sigma2([q,sigma2(2)],C0_pri,C0_lik,y,a(1),b(1),1);
+                    logf{1}=@(q)logpost_sigma2([q,sigma2(2)],mgC,y,a(1),b(1),1);
                     [sigma2(1),nl_sigma2(1)]=fmincon(@(q)-logf{1}(q),sigma2(1),[],[],[],[],0,[],[],opts_con);
                 end
-            case 'kron_sum'
-                C0_pri=sparse(kron(stgp.C_t,speye(stgp.I))); C0_lik=C_xt;
-        end
-        % sigma2_t
-        if ~jtopt
-            logf{2}=@(q)logpost_sigma2([sigma2(1),q],C0_pri,C0_lik,y,a(2),b(2),2);
-            [sigma2(2),nl_sigma2(2)]=fmincon(@(q)-logf{2}(q),sigma2(2),[],[],[],[],0,[],[],opts_con);
+            end
+            % sigma2_t
+            if ~jtopt
+                logf{2}=@(q)logpost_sigma2([sigma2(1),q],mgC,y,a(2),b(2),2);
+                [sigma2(2),nl_sigma2(2)]=fmincon(@(q)-logf{2}(q),sigma2(2),[],[],[],[],mgC.stgp.C_t.jit,[],[],opts_con);
+            else
+                % joint optimize
+                logF=@(q)logpost_sigma2(q,mgC,y,a(1:2),b(1:2),1:2);
+                [sigma2(1:2),nl_sigma2]=fmincon(@(q)-sum(logF(q)),sigma2(1:2),[],[],[],[],zeros(2,1),[],[],opts_con);
+            end
         else
-            % jointly optimize
-            logF=@(q)logpost_sigma2(q,C0_pri,C0_lik,y,a(1:2),b(1:2),1:2);
-            [sigma2(1:2),nl_sigma2]=fmincon(@(q)-sum(logF(q)),sigma2(1:2),[],[],[],[],zeros(2,1),[],[],opts_con);
+            switch mgC.stgp.opt
+                case {0,1}
+                    dltb(1)=0.5.*sum((y-M).^2,'all');
+                    dltb(2)=0.5.*(M(:)'*mgC.stgp.solve(M(:))).*sigma2(2);
+                case 2
+                    dltb(1)=0;
+                    dltb(2)=0.5.*sum(M.*mgC.stgp.C_t.solve(M')','all').*sigma2(2);
+            end
         end
-        % sigma2_tilt
-        Lambda_til=Lambda.*(1:L).^(ker{3}.kappa/2);
-        quad=Lambda_til.*(ker{3}.C\Lambda_til);
-        dltb(3)=0.5.*sum(quad(:)).*sigma2(3);
+        % sigma2_u
+        U=mgC.stgp.scale_Lambda(Lambda);
+        dltb(3)=0.5.*sum(U.*ker3.solve(U),'all').*sigma2(3);
         beta=b+dltb;
-        sigma2(3)=beta(3)./(alpha(3)+1);
-        objf(1)=sum(nl_sigma2)-(log(gampdf(1./sigma2(3),alpha(3),1./beta(3)))-2*log(sigma2(3)));
+        sigma2_all=beta./(alpha+1); % optimize
+        nl_sigma2_all=-(log(gampdf(1./sigma2_all,alpha,1./beta))-2*log(sigma2_all));
+        idx2upd=(intM*3+(1-intM)*(1+(mgC.stgp.opt==2))):3;
+        sigma2(idx2upd)=sigma2_all(idx2upd); nl_sigma2(idx2upd)=nl_sigma2_all(idx2upd);
+        objf(1)=sum(nl_sigma2);
+        % update kernels
+        ker3=ker3.update(sigma2(3));
+        mgC=mgC.update(mgC.stgp.update([],mgC.stgp.C_t.update(sigma2(2))),sigma2(1));
+    end
+    % setting for eta and Lambda
+    if intM
+        M=[];
     end
     if opt_id(2)
         % update eta
         if ~jtopt
             % eta_x
-            logf{1}=@(q)logpost_eta([q,eta(2)],sigma2(1:2),ker(1:2),stgp,y,m(1),V(1),1);
+            logf{1}=@(q)logpost_eta([q,eta(2)],mgC,y,m(1),V(1),1,M);
             [eta(1),nl_eta(1)]=fminunc(@(q)-logf{1}(q),eta(1),opts_unc);
             % eta_t
-            logf{2}=@(q)logpost_eta([eta(1),q],sigma2(1:2),ker(1:2),stgp,y,m(2),V(2),2);
+            logf{2}=@(q)logpost_eta([eta(1),q],mgC,y,m(2),V(2),2,M);
             [eta(2),nl_eta(2)]=fminunc(@(q)-logf{2}(q),eta(2),opts_unc);
-            % eta_tilt
-            logf{3}=@(q)logpost_eta(q,sigma2(3),ker(3),stgp,y,m(3),V(3),3);
+            % eta_u
+            logf{3}=@(q)logpost_eta(q,mgC,y,m(3),V(3),3,M,ker3);
             [eta(3),nl_eta(3)]=fminunc(@(q)-logf{3}(q),eta(3),opts_unc);
         else
-            % jointly optimize
-            logF=@(q)logpost_eta(q,sigma2,ker,stgp,y,m,V,1:3);
+            % joint optimize
+            logF=@(q)logpost_eta(q,mgC,y,m,V,1:3,M,ker3);
             [eta,nl_eta]=fminunc(@(q)-sum(logF(q)),eta,opts_unc);
         end
         objf(2)=sum(nl_eta);
+         % update kernels
+        ker3=ker3.update([],exp(eta(3)));
+        mgC=mgC.update(mgC.stgp.update(mgC.stgp.C_x.update([],exp(eta(1))),mgC.stgp.C_t.update([],exp(eta(2)))));
     end
-    if any(opt_id(1:2))
-        % update kernels
-        for k=1:length(ker)
-            ker{k}.C=sigma2(k)^(k~=1).*(exp(-.5.*ker{k}.dist.*exp(-ker{k}.s.*eta(k)))+ker{k}.jit);
+    if opt_id(3) && mgC.stgp.opt
+        % update Lambda
+        logLik_Lambda=@(q)loglik_Lambda(q,mgC,y,M);
+        if ~verLessThan('matlab','9.9') && isgpuarray(Lambda)
+            [Lambda,objf(3)]=fminunc(@(q)gather(-logLik_Lambda(q)-ker3.matn0pdf(q)),gather(Lambda),opts_unc);
+            Lambda=gpuArray(Lambda);
+        else
+            [Lambda,objf(3)]=fminunc(@(q)-logLik_Lambda(q)-ker3.matn0pdf(q),Lambda,opts_unc);
         end
-        stgp.C_x=ker{1}.C; stgp=stgp.get_spat(); stgp.C_t=ker{2}.C;
-    end
-    if opt_id(3)
-        % update Lambda
-        logLik_Lambda=@(q)loglik_Lambda(q,sigma2(1),stgp,y);
-        [Lambda,objf(3)]=fminunc(@(q)-logLik_Lambda(q)-matn0pdf(q,ker{3}.C),Lambda,opts_unc);
-%         % to-do
-%         logf_Lambda=@(q)geom_Lambda(q,sigma2(1),stgp,y);
-%         [Lambda,objf(4)]=fminunc(@(q)logf_Lambda(q),Lambda,opts_unc_g);
-        % update Lambda
-        stgp.Lambda=Lambda;
+        % update marginal kernel
+        mgC=mgC.update(mgC.stgp.update([],[],Lambda));
     end
     if opt_id(4)
         % update M
-        [mu,chol_Sigma]=stgp.post_mean(y,sigma2(1));
-        M=reshape(mu,I,J);
-        objf(4)=sum(log(diag(chol_Sigma)));
+        [~,MU]=mgC.sample_postM(y);
+        M=reshape(MU,I,J);
+        objf(4)=mgC.stgp.logdet-mgC.logdet;
+        switch mgC.stgp.ker_opt
+            case 'kron_prod'
+                objf(4)=objf(4)+I*J*log(sigma2(1));
+            case 'kron_sum'
+                objf(4)=objf(4)+I*mgC.stgp.C_t.logdet;
+        end
+        objf(4)=objf(4)./2;
+    end
+    
+    % display the progress
+    if ismember(iter,floor(Nmax.*prog))
+        fprintf('%.0f%% of max iterations completed.\n',100*iter/Nmax);
     end
     
     % display current objective function
@@ -132,7 +156,10 @@ for iter=1:Nmax
     % break if condition satisfied
     if iter>1
         dif(1)=max(abs(sigma2_-sigma2)); dif(2)=max(abs(eta_-eta));
-        dif(3)=max(abs(Lambda_(:)-Lambda(:))); dif(4)=max(abs(M_(:)-M(:))); 
+        dif(3)=max(abs(Lambda_(:)-Lambda(:))); 
+        if ~isempty(M)
+            dif(4)=max(abs(M_(:)-M(:))); 
+        end
         if all(abs(objf_-objf)<thld) || all(dif<thld)
             fprintf('Optimization breaks at iteration %d.\n',iter);
             break;

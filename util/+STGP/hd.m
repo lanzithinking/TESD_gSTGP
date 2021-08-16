@@ -271,11 +271,16 @@ classdef hd
                     case 'kron_prod'
                         if ~self.spdapx
                             [~,C_z]=self.tomat;
-                            [eigf,eigv]=eigs(C_z,L,'lm','Tolerance',1e-10,'MaxIterations',100);
+                            [eigf,eigv,flag]=eigs(C_z,L,'lm','Tolerance',1e-10,'MaxIterations',100);
                         else
-                            [eigf,eigv]=eigs(@self.C_zmult,self.N,L,'lm','Tolerance',1e-10,'MaxIterations',100,'IsFunctionSymmetric',true); % C_z, (IJ,L)
+                            [eigf,eigv,flag]=eigs(@self.C_zmult,self.N,L,'lm','Tolerance',1e-10,'MaxIterations',100,'IsFunctionSymmetric',true); % C_z, (IJ,L)
                         end
                         eigv=diag(eigv);
+                        if flag
+                            divrg_ind=isnan(eigv);
+                            eigv(divrg_ind)=0;
+                            warning('%d of %d requested eigenvalues are not converged!',sum(divrg_ind),L);
+                        end
                     case 'kron_sum'
                         eigv=self.Lambda'.^2; %[eigv,I_dsc]=sort(eigv(:),'descend'); % (LJ, 1)
                         eigf=kron(speye(self.J),self.C_x.eigs(self.L)); %eigf=eigf(:,I_dsc); % (IJ, LJ)

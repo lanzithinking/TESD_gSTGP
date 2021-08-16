@@ -128,11 +128,16 @@ classdef mg
             else
                 L=min([L,self.stgp.N]);
                 if ~self.stgp.spdapx
-                    [eigf,eigv]=eigs(self.tomat,L,'lm','Tolerance',1e-10,'MaxIterations',100);
+                    [eigf,eigv,flag]=eigs(self.tomat,L,'lm','Tolerance',1e-10,'MaxIterations',100);
                 else
-                    [eigf,eigv]=eigs(@self.mult,self.stgp.N,L,'lm','Tolerance',1e-10,'MaxIterations',100,'IsFunctionSymmetric',true); % (IJ,L)
+                    [eigf,eigv,flag]=eigs(@self.mult,self.stgp.N,L,'lm','Tolerance',1e-10,'MaxIterations',100,'IsFunctionSymmetric',true); % (IJ,L)
                 end
                 eigv=diag(eigv);
+                if flag
+                    divrg_ind=isnan(eigv);
+                    eigv(divrg_ind)=0;
+                    warning('%d of %d requested eigenvalues are not converged!',sum(divrg_ind),L);
+                end
             end
         end
         

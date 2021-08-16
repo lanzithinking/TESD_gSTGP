@@ -5,3 +5,4 @@
 # ignore folders
 data/
 /util/+STGP_gpu/
+_*/

@@ -160,18 +160,23 @@ classdef isub
                     else
                         S=self.solve(speye(self.stgp.L*self.stgp.J),alpha_);
                     end
-                    [eigf,eigv,flag]=eigs(S,L,'lm','Tolerance',1e-10,'MaxIterations',100,'FailureTreatment','drop'); % (LJ,self.L)
+%                     [eigf,eigv,flag]=eigs(S,L,'lm','Tolerance',1e-10,'MaxIterations',100,'FailureTreatment','drop'); % (LJ,self.L)
+                    [eigf,eigv,flag]=eigs(S,L,'lm','Tolerance',1e-10,'MaxIterations',100); % (LJ,self.L)
                 else
                     if alpha>0
                         Sf=@(v)self.mult(v,alpha_);
                     else
                         Sf=@(v)self.solve(v,alpha_);
                     end
-                    [eigf,eigv,flag]=eigs(Sf,self.stgp.L*self.stgp.J,L,'lm','Tolerance',1e-10,'MaxIterations',100,'IsFunctionSymmetric',true,'FailureTreatment','drop'); % (LJ,self.L)
+%                     [eigf,eigv,flag]=eigs(Sf,self.stgp.L*self.stgp.J,L,'lm','Tolerance',1e-10,'MaxIterations',100,'IsFunctionSymmetric',true,'FailureTreatment','drop'); % (LJ,self.L)
+                    [eigf,eigv,flag]=eigs(Sf,self.stgp.L*self.stgp.J,L,'lm','Tolerance',1e-10,'MaxIterations',100,'IsFunctionSymmetric',true); % (LJ,self.L)
                 end
                 eigv=diag(eigv).^abs(alpha);
                 if flag
-                    warning('%d of %d requested eigenvalues are not converged!',L-length(eigv),L);
+%                     warning('%d of %d requested eigenvalues are not converged!',L-length(eigv),L);
+                    divrg_ind=isnan(eigv);
+                    eigv(divrg_ind)=0;
+                    warning('%d of %d requested eigenvalues are not converged!',sum(divrg_ind),L);
                 end
             end
         end

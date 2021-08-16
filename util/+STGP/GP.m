@@ -135,11 +135,16 @@ classdef GP
             else
                 L=min([L,self.N]);
                 if ~self.spdapx
-                    [eigf,eigv]=eigs(self.tomat,L,'lm','Tolerance',1e-10,'MaxIterations',100); % (N,L)
+                    [eigf,eigv,flag]=eigs(self.tomat,L,'lm','Tolerance',1e-10,'MaxIterations',100); % (N,L)
                 else
-                    [eigf,eigv]=eigs(@self.mult,self.N,L,'lm','Tolerance',1e-10,'MaxIterations',100,'IsFunctionSymmetric',true); % (N,L)
+                    [eigf,eigv,flag]=eigs(@self.mult,self.N,L,'lm','Tolerance',1e-10,'MaxIterations',100,'IsFunctionSymmetric',true); % (N,L)
                 end
                 eigv=abs(diag(eigv));
+                if flag
+                    divrg_ind=isnan(eigv);
+                    eigv(divrg_ind)=0;
+                    warning('%d of %d requested eigenvalues are not converged!',sum(divrg_ind),L);
+                end
             end
         end
         

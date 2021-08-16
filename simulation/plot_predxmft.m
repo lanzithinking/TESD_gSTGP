@@ -1,19 +1,32 @@
 % This is to plot predictive mean function of time with fixed locations
 
 clear;
+sufx={'','_mtimesx','_gpu'};
+stgp_ver=['STGP',sufx{2}];
 addpath('../util/');
-addpath('~/Documents/MATLAB/tight_subplot/');
-% addpath('~/Documents/MATLAB/boundedline/');
-addpath(genpath('~/Documents/MATLAB/boundedline-pkg/'));
-% addpath('~/Documents/MATLAB/supertitle/');
+if contains(stgp_ver,'mtimesx')
+    addpath('../util/mtimesx/');
+end
+addpath('../util/tight_subplot/');
+addpath(genpath('../util/boundedline-pkg/'));
 % Random Numbers...
 seedNO = 2018;
 seed = RandStream('mt19937ar','Seed',seedNO);
 RandStream.setGlobalStream(seed);
 
 % model options
-models={'kron_prod','kron_sum'};
+models={'sep','kron_prod','kron_sum'};
 L_mdl=length(models);
+opthypr=false;
+jtupt=false;
+intM=false;
+alg_name='MCMC';
+if opthypr
+    alg_name=['opt',alg_name];
+    if jtupt
+        alg_name=['jt',alg_name];
+    end
+end
 
 %% data
 
@@ -38,19 +51,11 @@ J_tr=length(tr_j); J_te=length(te_j);
 
 % parameters of kernel
 s=2; % smoothness
+kappa=1.2; % decaying rate for dynamic eigenvalues
 % spatial kernel
-if d==1
-    dist_x=pdist2(x,x,@(XI,XJ)abs(bsxfun(@minus,XI,XJ)).^s);
-else
-    dist_x=sum(abs(reshape(x,I,1,[])-reshape(x,1,I,[])).^s,3);
-end
-jit_x=1e-6.*speye(I);
-ker{1}.s=s;ker{1}.dist=dist_x;ker{1}.jit=jit_x;
+jit_x=1e-6;
 % temporal kernels
-dist_t=pdist2(t,t,@(XI,XJ)abs(bsxfun(@minus,XI,XJ)).^s);
-jit_t=1e-6.*speye(J);
-ker{2}.s=s;ker{2}.dist=dist_t;ker{2}.jit=jit_t;
-ker{3}=ker{2}; % for hyper-GP
+jit_t=1e-6;
 
 %% truth
 
@@ -60,6 +65,7 @@ ker{3}=ker{2}; % for hyper-GP
 % ground truth functions
 x_mf_t=@(x,t)sum(cos(pi.*x),2).*sin(pi.*t');
 
+t_all=t; J_all=J;
 %% estimation
 
 % obtain prediction of mean function from MCMC samples
@@ -67,50 +73,62 @@ x_mf_t=@(x,t)sum(cos(pi.*x),2).*sin(pi.*t');
 folder = './summary/';
 files = dir(folder);
 nfiles = length(files) - 2;
-keywd = ['_I',num2str(I),'_J',num2str(J_tr),'_K',num2str(K),'_L',num2str(L),'_d',num2str(d)];
-f_name = ['predxmft',keywd];
+keywd = {[alg_name,'_',repmat('intM_',1,intM)],['I',num2str(I),'_J',num2str(J_tr),'_K',num2str(K),'_L',num2str(L),'_d',num2str(d)]};
+f_name = ['predxmft_',keywd{:}];
 if exist([folder,f_name,'.mat'],'file')
     load([folder,f_name,'.mat']);
 else
     M_estm=cell(1,L_mdl); [M_estm{:}]=deal(zeros(I,J_te)); M_estd = M_estm;
     M_predm=cell(1,L_mdl); [M_predm{:}]=deal(zeros(I,J_te)); M_prestd = M_predm;
-    for l=1:L_mdl
+    for mdl_opt=1:L_mdl-1
         found=false;
         for k=1:nfiles
-            if contains(files(k+2).name,[models{l},keywd])
-                load(strcat(folder, files(k+2).name),'samp_*');
+            if contains(files(k+2).name,join(keywd,[models{mdl_opt+1},'_']))
+                load(strcat(folder, files(k+2).name));
                 fprintf('%s loaded.\n',files(k+2).name);
                 found=true; break;
             end
         end
         if found
-            M_estm{l}=shiftdim(mean(samp_M,1)); M_estd{l}=shiftdim(std(samp_M,0,1));
+            M_estm{mdl_opt}=shiftdim(mean(samp_M,1)); M_estd{mdl_opt}=shiftdim(std(samp_M,0,1));
             N_samp=size(samp_sigma2,1); M_predvar=zeros(I,J_te);
-            for n=1:N_samp
-                for k=1:length(ker)
-                    ker{k}.C=samp_sigma2(n,k)^(k~=1).*(exp(-.5.*ker{k}.dist.*exp(-ker{k}.s.*samp_eta(n,k)))+ker{k}.jit);
-                end
-                Lambda_n=squeeze(samp_Lambda(n,:,:)); % (J_tr,L)
-                switch l
-                    case 1
-                        Lambda=zeros(J,L); Lambda(tr_j,:)=Lambda_n;
-                        Lambda(te_j,:)=ker{3}.C(te_j,tr_j)/ker{3}.C(tr_j,tr_j)*Lambda_n;
-                        stgp=STGP(ker{1}.C,ker{2}.C,Lambda,models{l});
-                        C_M_n=stgp.get_jtker();
-                        C_M_n=reshape(C_M_n,[I,J,I,J]);
-                        C_E=reshape(C_M_n(:,te_j,:,te_j),I*J_te,I*J_te); C_ED=reshape(C_M_n(:,te_j,:,tr_j),I*J_te,I*J_tr);
-                        stgp.C_t=stgp.C_t(tr_j,tr_j); stgp.J=J_tr; stgp=stgp.get_bkdgix('IJI'); stgp.Lambda=Lambda_n;
-                    case 2
-                        stgp=STGP(ker{1}.C,ker{2}.C(tr_j,tr_j),Lambda_n,models{l});
-                        C_E=kron(ker{2}.C(te_j,te_j),speye(I));
-                        C_ED=kron(ker{2}.C(te_j,tr_j),speye(I));
-                end
-                [mu,Sigma]=stgp.pred_mean(y(:,tr_j,:),samp_sigma2(n,1),C_E,C_ED);
-                M_predm{l}=M_predm{l}+reshape(mu,I,J_te); M_predvar=M_predvar+reshape(mu.^2,I,J_te);
-                M_prestd{l}=M_prestd{l}+reshape(diag(Sigma),I,J_te);
+            if exist('mgC','var')&&isa(mgC,[stgp_ver,'.mg'])
+                stgp=mgC.stgp;
+            else
+                ker{1}=feval([stgp_ver,'.GP'],x,optini.sigma2(1),exp(optini.eta(1)),s,L,jit_x,true);
+                ker{2}=feval([stgp_ver,'.GP'],t,optini.sigma2(2),exp(optini.eta(2)),s,L,jit_t,true);
+                stgp=feval([stgp_ver,'.hd'],ker{1},ker{2},optini.Lambda,kappa,mdl_opt); [ker{1:2}]=deal([]);
+                mgC=feval([stgp_ver,'.mg'],stgp,K,optini.sigma2(1),L);
             end
-            M_predm{l}=M_predm{l}./N_samp; M_predvar=M_predvar./N_samp - M_predm{l}.^2;
-            M_prestd{l}=sqrt(M_prestd{l}./N_samp + M_predvar);
+            ker{2}=feval([stgp_ver,'.GP'],t_all,[],[],stgp.C_t.s,stgp.C_t.L,stgp.C_t.jit);
+            ker{3}=ker{2};
+            for n=1:N_samp
+                for k=2:length(ker)
+                    ker{k}=ker{k}.update(samp_sigma2(n,k),exp(samp_eta(n,k)));
+                end
+                Lambda_n=shiftdim(samp_Lambda(n,:,:)); % (J_tr,L)
+                switch mdl_opt
+                    case 1
+                        C_tilt=ker{3}.tomat;
+                        Lambda=zeros(J_all,L); Lambda(tr_j,:)=Lambda_n;
+                        Lambda(te_j,:)=C_tilt(te_j,tr_j)/C_tilt(tr_j,tr_j)*Lambda_n;
+                        stgp=stgp.update(stgp.C_x.update([],exp(samp_eta(n,1))),ker{2},Lambda); stgp.N=I*J_all;
+                        [~,C_M_n]=stgp.tomat();
+                        C_M_n=reshape(full(C_M_n),[I,J_all,I,J_all]);
+                        C_E=reshape(C_M_n(:,te_j,:,te_j),I*J_te,I*J_te); C_ED=reshape(C_M_n(:,te_j,:,tr_j),I*J_te,I*J_tr);
+                    case 2
+                        C_t=ker{2}.tomat;
+                        C_E=kron(C_t(te_j,te_j),speye(I));
+                        C_ED=kron(C_t(te_j,tr_j),speye(I));
+                end
+                mgC=mgC.update(stgp.update(stgp.C_x.update([],exp(samp_eta(n,1))),mgC.stgp.C_t.update(samp_sigma2(n,2),exp(samp_eta(n,2))),Lambda_n),samp_sigma2(n,1));
+                mgC.stgp.N=I*J;
+                [mu,Sigma]=mgC.predM(y,C_E,C_ED);
+                M_predm{mdl_opt}=M_predm{mdl_opt}+reshape(mu,I,J_te); M_predvar=M_predvar+reshape(mu.^2,I,J_te);
+%                 M_prestd{mdl_opt}=M_prestd{mdl_opt}+reshape(diag(Sigma),I,J_te);
+            end
+            M_predm{mdl_opt}=M_predm{mdl_opt}./N_samp; M_predvar=M_predvar./N_samp - M_predm{mdl_opt}.^2;
+            M_prestd{mdl_opt}=sqrt(M_prestd{mdl_opt}./N_samp + M_predvar);
         end
     end
     % save the estimation results
@@ -135,11 +153,12 @@ for i=1:L_locations
     [~,x_idx(i)]=min(abs(x-locations(i)));
 end
 
+t=t_all;
 % plot predicted mean functions
-for l=1:L_mdl
-    subplot(ha(l));
-    M_estm_=M_estm{l}(x_idx,:); M_estd_=M_estd{l}(x_idx,:);
-    M_predm_=M_predm{l}(x_idx,:); M_prestd_=M_prestd{l}(x_idx,:);
+for mdl_opt=1:L_mdl-1
+    subplot(ha(mdl_opt));
+    M_estm_=M_estm{mdl_opt}(x_idx,:); M_estd_=M_estd{mdl_opt}(x_idx,:);
+    M_predm_=M_predm{mdl_opt}(x_idx,:); M_prestd_=M_prestd{mdl_opt}(x_idx,:);
     % plot estimated mean
     plot(0,0); hold on;
     set(gca,'colororderindex',1);
@@ -161,7 +180,7 @@ for l=1:L_mdl
     ylabh=get(gca,'YLabel'); set(ylabh,'Position',get(ylabh,'Position') + [0.02 0 0]);
     lgd=legend(h2,strcat('x=',sprintfc('%g',locations)),'location','southwest');
     set(lgd,'orientation','horizontal','fontsize',18,'box','off');
-    title(['Model ',repmat('I',1,l),repmat(' ',1,4),'K = ',num2str(K)],'fontsize',18);
+    title(['Model ',repmat('I',1,mdl_opt),repmat(' ',1,4),'K = ',num2str(K)],'fontsize',18);
 end
 % save plot
 fig.PaperPositionMode = 'auto';
